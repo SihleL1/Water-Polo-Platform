@@ -28,10 +28,26 @@ export default function ScorekeeperPage() {
       }
 
       if (data) {
+        const homeTeamName = (() => {
+          const homeTeam = data.home_team as unknown as { name?: string }[] | { name?: string } | null | undefined;
+          if (Array.isArray(homeTeam)) {
+            return homeTeam[0]?.name ?? null;
+          }
+          return homeTeam?.name ?? null;
+        })();
+
+        const awayTeamName = (() => {
+          const awayTeam = data.away_team as unknown as { name?: string }[] | { name?: string } | null | undefined;
+          if (Array.isArray(awayTeam)) {
+            return awayTeam[0]?.name ?? null;
+          }
+          return awayTeam?.name ?? null;
+        })();
+
         setMatch({
           ...data,
-          home_team_name: data.home_team?.name,
-          away_team_name: data.away_team?.name,
+          home_team_name: homeTeamName,
+          away_team_name: awayTeamName,
         });
       }
     };
@@ -42,8 +58,8 @@ export default function ScorekeeperPage() {
       // subscribe to realtime updates for this match
       channel = supabase
         .channel(`public:matches:match:${matchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` }, (payload) => {
-          const newRow = payload.new ?? payload.record ?? payload;
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` }, (payload: any) => {
+          const newRow = payload.new ?? payload.old ?? payload;
           if (newRow) {
             setMatch((prev: any) => ({ ...(prev || {}), ...newRow }));
           }

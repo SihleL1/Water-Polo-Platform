@@ -6,3 +6,7 @@ out
 .env.development.local
 .env.test.local
 .env.production.local
+build_output.txt
+tsc_output.txt
+tsconfig.tsbuildinfo
+logos/
