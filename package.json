@@ -12,9 +12,17 @@
     "@supabase/ssr": "^0.2.0",
     "@supabase/supabase-js": "^2.112.1",
     "lucide-react": "^0.520.0",
+    "papaparse": "^5.4.1",
+    "framer-motion": "^10.12.6",
+    "react-hotkeys-hook": "^4.3.0",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1"
+  },
+  "optionalDependencies": {
+    "tailwindcss": "^3.5.10",
+    "postcss": "^8.4.25",
+    "autoprefixer": "^10.4.0"
   },
   "devDependencies": {
     "@types/node": "20.14.2",
