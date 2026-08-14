@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
@@ -48,15 +48,19 @@ interface Exclusion {
 }
 
 export default function ScorekeeperConsole({ match }: MatchProps) {
-  const [homeScore, setHomeScore] = useState(match.home_score);
-  const [awayScore, setAwayScore] = useState(match.away_score);
-  const [period, setPeriod] = useState(match.period);
+  const [homeScore, setHomeScore] = useState<number>(match.home_score ?? 0);
+  const [awayScore, setAwayScore] = useState<number>(match.away_score ?? 0);
+  const [period, setPeriod] = useState<number>(match.period ?? 1);
   const [possession, setPossession] = useState<'home' | 'away'>('home');
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away'>('home');
   const [selectedCap, setSelectedCap] = useState<number | string>(1);
 
-  const [homeCapColor, setHomeCapColor] = useState<'white' | 'blue' | 'dark'>(match.home_cap_color || 'white');
-  const [awayCapColor, setAwayCapColor] = useState<'white' | 'blue' | 'dark'>(match.away_cap_color || 'blue');
+  const [homeCapColor, setHomeCapColor] = useState<'white' | 'blue' | 'dark'>(
+    match.home_cap_color || 'white'
+  );
+  const [awayCapColor, setAwayCapColor] = useState<'white' | 'blue' | 'dark'>(
+    match.away_cap_color || 'blue'
+  );
 
   const [periodClock, setPeriodClock] = useState<number>(480);
   const [shotClock, setShotClock] = useState<number>(30);
@@ -83,20 +87,32 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
     };
   }, [isRunning]);
 
-  const updateMatchState = async (updates: Record<string, any>) => {
+  const updateMatchState = useCallback(async (updates: Record<string, any>) => {
     await supabase.from('matches').update(updates).eq('id', match.id);
-  };
+  }, [match.id]);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.code === 'Space') {
-      e.preventDefault();
-      setIsRunning((r) => !r);
-    } else if (e.key.toLowerCase() === 'r') {
-      setShotClock(30);
-    } else if (e.key.toLowerCase() === 'p') {
-      setPossession((p) => (p === 'home' ? 'away' : 'home'));
-    }
-  }, []);
+  const toggleRunning = useCallback(
+    async (next?: boolean) => {
+      const newRunning = typeof next === 'boolean' ? next : !isRunning;
+      setIsRunning(newRunning);
+      await updateMatchState({ is_running: newRunning });
+    },
+    [isRunning, updateMatchState]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        toggleRunning();
+      } else if (e.key.toLowerCase() === 'r') {
+        setShotClock(30);
+      } else if (e.key.toLowerCase() === 'p') {
+        setPossession((p) => (p === 'home' ? 'away' : 'home'));
+      }
+    },
+    [toggleRunning]
+  );
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -126,16 +142,18 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
       ]);
     }
 
-    const minutes = Math.floor(periodClock / 60).toString().padStart(2, '0');
+    const minutes = Math.floor(periodClock / 60)
+      .toString()
+      .padStart(2, '0');
     const seconds = (periodClock % 60).toString().padStart(2, '0');
 
     await supabase.from('match_events').insert([
       {
         match_id: match.id,
         period,
-        game_clock: `${minutes}:${seconds}`,
+        game_clock: periodClock,
         team_id: activeTeamId,
-        primary_player_cap: typeof selectedCap === 'number' ? selectedCap : 0,
+        primary_player_cap: String(selectedCap),
         event_category: eventType,
       },
     ]);
@@ -170,8 +188,12 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
             <Image src="/logos/logo-icon.png" alt="Veldt Analytics logo" fill priority />
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-wide text-white uppercase">VELDT ANALYTICS POOLSIDE CONSOLE</h1>
-            <p className="text-xs text-[#667F66]">Official Tournament Operations System • Est. 2026</p>
+            <h1 className="text-sm font-bold tracking-wide text-white uppercase">
+              VELDT ANALYTICS POOLSIDE CONSOLE
+            </h1>
+            <p className="text-xs text-[#667F66]">
+              Official Tournament Operations System • Est. 2026
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-2xl border border-[#234723] bg-[#162217] px-4 py-3 shadow-inner shadow-black/20">
@@ -183,9 +205,18 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
         </div>
 
         <div className="hidden lg:flex items-center gap-4 text-xs text-[#667F66] bg-[#0F1710] px-3 py-1.5 rounded-lg border border-[#234723]">
-          <span><kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">Space</kbd> Start/Stop Clock</span>
-          <span><kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">R</kbd> Reset Shot Clock</span>
-          <span><kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">P</kbd> Flip Possession</span>
+          <span>
+            <kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">Space</kbd>{' '}
+            Start/Stop Clock
+          </span>
+          <span>
+            <kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">R</kbd> Reset
+            Shot Clock
+          </span>
+          <span>
+            <kbd className="bg-[#234723] text-white px-1.5 py-0.5 rounded text-[10px]">P</kbd> Flip
+            Possession
+          </span>
         </div>
       </header>
 
@@ -246,7 +277,9 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
           <div className="flex items-center justify-between w-full border-b border-[#234723] pb-3">
             <div className="flex items-center gap-2">
               <Layers size={16} className="text-[#E3A355]" />
-              <span className="text-xs font-black text-[#E3A355] uppercase tracking-widest">QUARTER {period} / 4</span>
+              <span className="text-xs font-black text-[#E3A355] uppercase tracking-widest">
+                QUARTER {period} / 4
+              </span>
             </div>
 
             <div className="flex items-center gap-1">
@@ -266,15 +299,22 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
 
           <div className="my-2">
             <div className="text-6xl font-mono font-black text-red-500 tracking-wider">
-              {Math.floor(periodClock / 60).toString().padStart(2, '0')}:{(periodClock % 60).toString().padStart(2, '0')}
+              {Math.floor(periodClock / 60)
+                .toString()
+                .padStart(2, '0')}
+              :{(periodClock % 60).toString().padStart(2, '0')}
             </div>
-            <span className="text-[10px] text-[#667F66] uppercase font-bold tracking-widest">GAME CLOCK</span>
+            <span className="text-[10px] text-[#667F66] uppercase font-bold tracking-widest">
+              GAME CLOCK
+            </span>
           </div>
 
           <div className="flex items-center gap-4 bg-[#0F1710] px-5 py-2 rounded-xl border border-[#234723] my-1">
             <div className="text-center">
               <span className="text-3xl font-mono font-black text-[#E3A355]">{shotClock}s</span>
-              <span className="text-[9px] text-[#667F66] block font-bold uppercase">SHOT CLOCK</span>
+              <span className="text-[9px] text-[#667F66] block font-bold uppercase">
+                SHOT CLOCK
+              </span>
             </div>
 
             <button
@@ -326,7 +366,9 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               {renderCapBadge(awayCapColor)}
-              <span className="text-xs font-extrabold tracking-wider text-[#F5F5F4] uppercase">AWAY ({awayCapColor.toUpperCase()})</span>
+              <span className="text-xs font-extrabold tracking-wider text-[#F5F5F4] uppercase">
+                AWAY ({awayCapColor.toUpperCase()})
+              </span>
             </div>
 
             <select
@@ -443,10 +485,14 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
                 className="bg-[#162217] px-5 py-2.5 rounded-xl border border-red-500/40 flex items-center gap-4 shadow-md"
               >
                 <div>
-                  <span className="text-xs text-[#667F66] font-bold block uppercase">{ex.team} TEAM</span>
+                  <span className="text-xs text-[#667F66] font-bold block uppercase">
+                    {ex.team} TEAM
+                  </span>
                   <span className="text-base font-black text-white">CAP #{ex.cap}</span>
                 </div>
-                <div className="text-2xl font-mono font-black text-red-500 bg-[#0F1710] px-3 py-1 rounded-lg border border-red-900/50">{ex.timeRemaining}s</div>
+                <div className="text-2xl font-mono font-black text-red-500 bg-[#0F1710] px-3 py-1 rounded-lg border border-red-900/50">
+                  {ex.timeRemaining}s
+                </div>
               </div>
             ))}
           </div>

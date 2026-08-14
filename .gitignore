@@ -9,4 +9,7 @@ out
 build_output.txt
 tsc_output.txt
 tsconfig.tsbuildinfo
+build_output.txt
+tsc_output.txt
+tsconfig.tsbuildinfo
 logos/

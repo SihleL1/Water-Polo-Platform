@@ -5,7 +5,9 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KE
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('Missing Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)');
+    throw new Error(
+      'Missing Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)'
+    );
   }
 }
 

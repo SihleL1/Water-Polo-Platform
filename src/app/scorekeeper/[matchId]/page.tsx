@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import ScorekeeperConsole from '@/components/scorekeeper-console';
+import Header from '@/components/Header';
 
 export default function ScorekeeperPage() {
   const { matchId } = useParams();
@@ -15,11 +16,13 @@ export default function ScorekeeperPage() {
     const fetchMatch = async () => {
       const { data, error } = await supabase
         .from('matches')
-        .select(`
+        .select(
+          `
           id, home_score, away_score, period, home_cap_color, away_cap_color, home_team_id, away_team_id,
           home_team:teams!matches_home_team_id_fkey(name),
           away_team:teams!matches_away_team_id_fkey(name)
-        `)
+        `
+        )
         .eq('id', matchId)
         .single();
 
@@ -29,7 +32,8 @@ export default function ScorekeeperPage() {
 
       if (data) {
         const homeTeamName = (() => {
-          const homeTeam = data.home_team as unknown as { name?: string }[] | { name?: string } | null | undefined;
+          const homeTeam = data.home_team as unknown as
+            { name?: string }[] | { name?: string } | null | undefined;
           if (Array.isArray(homeTeam)) {
             return homeTeam[0]?.name ?? null;
           }
@@ -37,7 +41,8 @@ export default function ScorekeeperPage() {
         })();
 
         const awayTeamName = (() => {
-          const awayTeam = data.away_team as unknown as { name?: string }[] | { name?: string } | null | undefined;
+          const awayTeam = data.away_team as unknown as
+            { name?: string }[] | { name?: string } | null | undefined;
           if (Array.isArray(awayTeam)) {
             return awayTeam[0]?.name ?? null;
           }
@@ -58,12 +63,16 @@ export default function ScorekeeperPage() {
       // subscribe to realtime updates for this match
       channel = supabase
         .channel(`public:matches:match:${matchId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` }, (payload: any) => {
-          const newRow = payload.new ?? payload.old ?? payload;
-          if (newRow) {
-            setMatch((prev: any) => ({ ...(prev || {}), ...newRow }));
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` },
+          (payload: any) => {
+            const newRow = payload.new ?? payload.old ?? payload;
+            if (newRow) {
+              setMatch((prev: any) => ({ ...(prev || {}), ...newRow }));
+            }
           }
-        })
+        )
         .subscribe();
     }
 
@@ -76,7 +85,14 @@ export default function ScorekeeperPage() {
     };
   }, [matchId]);
 
-  if (!match) return <div>Loading match data...</div>;
+  if (!match) return <div style={{ padding: 24 }}>Loading match data...</div>;
 
-  return <ScorekeeperConsole match={match} />;
+  return (
+    <div style={{ background: 'var(--bg-soft)' }} className="min-h-screen">
+      <Header />
+      <main className="max-w-6xl mx-auto p-6">
+        <ScorekeeperConsole match={match} />
+      </main>
+    </div>
+  );
 }

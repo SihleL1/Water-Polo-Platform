@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React, { useState } from 'react';
 import Papa from 'papaparse';
@@ -19,7 +19,8 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
   const [running, setRunning] = useState(false);
 
   const downloadTemplate = () => {
-    const headers = 'home_team_name,away_team_name,pool_group_name,home_cap_color,away_cap_color,scheduled_time\n';
+    const headers =
+      'home_team_name,away_team_name,pool_group_name,home_cap_color,away_cap_color,scheduled_time\n';
     const blob = new Blob([headers], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -42,9 +43,17 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
           // resolve or create teams
           const ensureTeam = async (name?: string) => {
             if (!name) return null;
-            const { data } = await supabase.from('teams').select('*').eq('name', name).maybeSingle();
+            const { data } = await supabase
+              .from('teams')
+              .select('*')
+              .eq('name', name)
+              .maybeSingle();
             if (data) return data.id;
-            const { data: ins } = await supabase.from('teams').insert([{ name, tournament_id: tournamentId || null }]).select().single();
+            const { data: ins } = await supabase
+              .from('teams')
+              .insert([{ name, tournament_id: tournamentId || null }])
+              .select()
+              .single();
             return ins?.id ?? null;
           };
 
@@ -54,10 +63,18 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
           // resolve pool group
           let poolId = null;
           if (row.pool_group_name) {
-            const { data } = await supabase.from('pool_groups').select('*').eq('name', row.pool_group_name).maybeSingle();
+            const { data } = await supabase
+              .from('pool_groups')
+              .select('*')
+              .eq('name', row.pool_group_name)
+              .maybeSingle();
             if (data) poolId = data.id;
             else {
-              const { data: ins } = await supabase.from('pool_groups').insert([{ name: row.pool_group_name, tournament_id: tournamentId || null }]).select().single();
+              const { data: ins } = await supabase
+                .from('pool_groups')
+                .insert([{ name: row.pool_group_name, tournament_id: tournamentId || null }])
+                .select()
+                .single();
               poolId = ins?.id ?? null;
             }
           }
@@ -96,13 +113,22 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
   return (
     <div className="p-4 bg-white rounded border" style={{ borderColor: '#E2E8F0' }}>
       <div className="flex items-center justify-between mb-3">
-        <div className="font-bold text-sm" style={{ color: '#234723' }}>Bulk Fixture Uploader</div>
+        <div className="font-bold text-sm" style={{ color: '#234723' }}>
+          Bulk Fixture Uploader
+        </div>
         <div>
-          <button onClick={downloadTemplate} className="px-3 py-1 bg-[#D8913B] text-white rounded">Download Template</button>
+          <button onClick={downloadTemplate} className="px-3 py-1 bg-[#D8913B] text-white rounded">
+            Download Template
+          </button>
         </div>
       </div>
 
-      <input type="file" accept="text/csv" onChange={(e) => handleFile(e.target.files?.[0] ?? null)} disabled={running} />
+      <input
+        type="file"
+        accept="text/csv"
+        onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+        disabled={running}
+      />
 
       {running && (
         <div className="mt-3">

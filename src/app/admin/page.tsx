@@ -1,8 +1,11 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { Trophy, Plus, Calendar, Layers, Users } from 'lucide-react';
+import Header from '@/components/Header';
+import CSVUploader from '@/components/CSVUploader';
 
 type Tournament = { id: string; name: string };
 type PoolGroup = { id: string; name: string; tournament_id: string };
@@ -50,8 +53,11 @@ export default function AdminPage() {
     }
   }, [selectedTournament]);
 
-  const loadTournaments = async () => {
-    const { data, error } = await supabase.from('tournaments').select('*').order('created_at', { ascending: false });
+  const loadTournaments = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('tournaments')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) {
       console.error(error);
       return;
@@ -62,10 +68,14 @@ export default function AdminPage() {
         setSelectedTournament(data[0].id);
       }
     }
-  };
+  }, [selectedTournament]);
 
   const loadPools = async (tournamentId: string) => {
-    const { data, error } = await supabase.from('pool_groups').select('*').eq('tournament_id', tournamentId).order('name', { ascending: true });
+    const { data, error } = await supabase
+      .from('pool_groups')
+      .select('*')
+      .eq('tournament_id', tournamentId)
+      .order('name', { ascending: true });
     if (error) {
       console.error(error);
       return;
@@ -74,7 +84,11 @@ export default function AdminPage() {
   };
 
   const loadTeams = async (tournamentId: string) => {
-    const { data, error } = await supabase.from('teams').select('*').eq('tournament_id', tournamentId).order('name', { ascending: true });
+    const { data, error } = await supabase
+      .from('teams')
+      .select('*')
+      .eq('tournament_id', tournamentId)
+      .order('name', { ascending: true });
     if (error) {
       console.error(error);
       return;
@@ -86,10 +100,13 @@ export default function AdminPage() {
       }));
       setTeams(teamsWithPools);
       setTeamPoolUpdates(
-        teamsWithPools.reduce((acc, team) => {
-          if (team.pool_group_id) acc[team.id] = team.pool_group_id;
-          return acc;
-        }, {} as Record<string, string>)
+        teamsWithPools.reduce(
+          (acc, team) => {
+            if (team.pool_group_id) acc[team.id] = team.pool_group_id;
+            return acc;
+          },
+          {} as Record<string, string>
+        )
       );
     }
   };
@@ -97,11 +114,13 @@ export default function AdminPage() {
   const loadMatches = async (tournamentId: string) => {
     const { data, error } = await supabase
       .from('matches')
-      .select(`
+      .select(
+        `
         id, status, pool_group_id, home_cap_color, away_cap_color,
         home_team:teams!matches_home_team_id_fkey(name),
         away_team:teams!matches_away_team_id_fkey(name)
-      `)
+      `
+      )
       .eq('tournament_id', tournamentId)
       .order('scheduled_time', { ascending: true });
 
@@ -115,7 +134,11 @@ export default function AdminPage() {
   const handleCreateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tournamentName) return;
-    const { data, error } = await supabase.from('tournaments').insert([{ name: tournamentName }]).select().single();
+    const { data, error } = await supabase
+      .from('tournaments')
+      .insert([{ name: tournamentName }])
+      .select()
+      .single();
     if (error) {
       console.error(error);
       return;
@@ -130,7 +153,9 @@ export default function AdminPage() {
   const handleCreatePool = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!poolName || !selectedTournament) return;
-    const { error } = await supabase.from('pool_groups').insert([{ tournament_id: selectedTournament, name: poolName }]);
+    const { error } = await supabase
+      .from('pool_groups')
+      .insert([{ tournament_id: selectedTournament, name: poolName }]);
     if (error) {
       console.error(error);
       return;
@@ -159,7 +184,10 @@ export default function AdminPage() {
   };
 
   const handleAssignTeamPool = async (teamId: string, poolId: string) => {
-    const { error } = await supabase.from('teams').update({ pool_group_id: poolId || null }).eq('id', teamId);
+    const { error } = await supabase
+      .from('teams')
+      .update({ pool_group_id: poolId || null })
+      .eq('id', teamId);
     if (error) {
       console.error(error);
       return;
@@ -191,21 +219,30 @@ export default function AdminPage() {
     loadMatches(selectedTournament);
   };
 
-  const poolNameById = (poolId?: string | null) => pools.find((pool) => pool.id === poolId)?.name ?? 'Unassigned';
+  const poolNameById = (poolId?: string | null) =>
+    pools.find((pool) => pool.id === poolId)?.name ?? 'Unassigned';
 
   return (
-    <div className="min-h-screen bg-[#0F1710] text-white p-6 font-sans">
+    <div style={{ background: 'var(--bg-soft)' }} className="min-h-screen p-6 font-sans">
+      <Header />
       <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-[#234723] pb-4">
+        <header
+          className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b"
+          style={{ borderColor: 'var(--muted-slate)' }}
+        >
           <div>
-            <h1 className="text-2xl font-black text-[#E3A355] flex items-center gap-2">
+            <h1 className="text-2xl font-black" style={{ color: 'var(--veldt-green)' }}>
               <Trophy /> Veldt Analytics Tournament Manager
             </h1>
-            <p className="text-sm text-[#667F66] mt-1">Create tournaments, pool groups, assign teams, and schedule fixtures.</p>
+            <p className="text-sm" style={{ color: 'var(--muted-text)' }}>
+              Create tournaments, pool groups, assign teams, and schedule fixtures.
+            </p>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs uppercase tracking-[0.25em] text-[#E3A355]">Active Tournament</label>
+            <label className="block text-xs uppercase tracking-[0.25em] text-[#E3A355]">
+              Active Tournament
+            </label>
             <select
               value={selectedTournament}
               onChange={(e) => setSelectedTournament(e.target.value)}
@@ -221,7 +258,10 @@ export default function AdminPage() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <section className="bg-[#162217] border border-[#234723] p-5 rounded-xl space-y-5">
+          <section
+            className="bg-white border p-5 rounded-xl space-y-5"
+            style={{ borderColor: 'var(--muted-slate)' }}
+          >
             <div className="flex items-center gap-2 text-[#E3A355] font-bold uppercase tracking-[0.2em] text-xs">
               <Plus size={16} /> Create Tournament
             </div>
@@ -230,15 +270,28 @@ export default function AdminPage() {
                 value={tournamentName}
                 onChange={(e) => setTournamentName(e.target.value)}
                 placeholder="Tournament Name (e.g. 2026 National Cup)"
-                className="w-full bg-[#0F1710] border border-[#234723] p-3 rounded text-sm text-white"
+                className="w-full p-3 rounded text-sm"
+                style={{ border: '1px solid var(--muted-slate)', background: 'var(--card-white)' }}
               />
-              <button className="w-full bg-[#E3A355] text-black font-bold px-4 py-3 rounded-lg hover:bg-[#d8a44d]">
+              <button
+                className="w-full bg-var"
+                style={{
+                  background: 'var(--veldt-ochre)',
+                  color: '#000',
+                  fontWeight: 700,
+                  padding: '0.75rem',
+                  borderRadius: '0.5rem',
+                }}
+              >
                 Save Tournament
               </button>
             </form>
           </section>
 
-          <section className="bg-[#162217] border border-[#234723] p-5 rounded-xl space-y-5">
+          <section
+            className="bg-white border p-5 rounded-xl space-y-5"
+            style={{ borderColor: 'var(--muted-slate)' }}
+          >
             <div className="flex items-center gap-2 text-[#E3A355] font-bold uppercase tracking-[0.2em] text-xs">
               <Layers size={16} /> Define Pool Groups
             </div>
@@ -255,14 +308,25 @@ export default function AdminPage() {
             </form>
             <div className="flex flex-wrap gap-2">
               {pools.map((pool) => (
-                <span key={pool.id} className="bg-[#0F1710] border border-[#234723] px-3 py-1 rounded text-xs text-[#E3A355]">
+                <span
+                  key={pool.id}
+                  className="px-3 py-1 rounded text-xs"
+                  style={{
+                    background: 'var(--card-white)',
+                    border: '1px solid var(--muted-slate)',
+                    color: 'var(--veldt-green)',
+                  }}
+                >
                   {pool.name}
                 </span>
               ))}
             </div>
           </section>
 
-          <section className="bg-[#162217] border border-[#234723] p-5 rounded-xl space-y-5">
+          <section
+            className="bg-white border p-5 rounded-xl space-y-5"
+            style={{ borderColor: 'var(--muted-slate)' }}
+          >
             <div className="flex items-center gap-2 text-[#E3A355] font-bold uppercase tracking-[0.2em] text-xs">
               <Users size={16} /> Create Teams
             </div>
@@ -271,19 +335,32 @@ export default function AdminPage() {
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 placeholder="Team Name"
-                className="w-full bg-[#0F1710] border border-[#234723] p-3 rounded text-sm text-white"
+                className="w-full p-3 rounded text-sm"
+                style={{ border: '1px solid var(--muted-slate)', background: 'var(--card-white)' }}
               />
               <select
                 value={newTeamPoolId}
                 onChange={(e) => setNewTeamPoolId(e.target.value)}
-                className="w-full bg-[#0F1710] border border-[#234723] p-3 rounded text-sm text-white"
+                className="w-full p-3 rounded text-sm"
+                style={{ border: '1px solid var(--muted-slate)', background: 'var(--card-white)' }}
               >
                 <option value="">Assign to Pool (optional)</option>
                 {pools.map((pool) => (
-                  <option key={pool.id} value={pool.id}>{pool.name}</option>
+                  <option key={pool.id} value={pool.id}>
+                    {pool.name}
+                  </option>
                 ))}
               </select>
-              <button className="w-full bg-[#234723] hover:bg-[#2e5c2e] text-white font-bold px-4 py-3 rounded-lg">
+              <button
+                className="w-full"
+                style={{
+                  background: 'var(--veldt-green)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  padding: '0.75rem',
+                  borderRadius: '0.5rem',
+                }}
+              >
                 Create Team
               </button>
             </form>
@@ -291,7 +368,10 @@ export default function AdminPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <section className="bg-[#162217] border border-[#234723] p-5 rounded-xl space-y-4">
+          <section
+            className="bg-white border p-5 rounded-xl space-y-4"
+            style={{ borderColor: 'var(--muted-slate)' }}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-[#E3A355] font-bold uppercase tracking-[0.2em] text-xs">
                 <Users size={16} /> Teams & Pools
@@ -299,27 +379,43 @@ export default function AdminPage() {
             </div>
             <div className="space-y-3">
               {teams.map((team) => (
-                <div key={team.id} className="grid grid-cols-1 gap-3 p-3 rounded-xl border border-[#234723] bg-[#0B1610]">
+                <div
+                  key={team.id}
+                  className="grid grid-cols-1 gap-3 p-3 rounded-xl border"
+                  style={{ borderColor: 'var(--muted-slate)', background: 'var(--card-white)' }}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-bold text-sm">{team.name}</span>
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-[#667F66]">
+                    <span
+                      className="text-[11px] uppercase tracking-[0.2em]"
+                      style={{ color: 'var(--muted-text)' }}
+                    >
                       {poolNameById(team.pool_group_id)}
                     </span>
                   </div>
                   <div className="flex gap-2">
                     <select
                       value={teamPoolUpdates[team.id] ?? team.pool_group_id ?? ''}
-                      onChange={(e) => setTeamPoolUpdates((prev) => ({ ...prev, [team.id]: e.target.value }))}
-                      className="flex-1 bg-[#0F1710] border border-[#234723] p-2 rounded text-sm text-white"
+                      onChange={(e) =>
+                        setTeamPoolUpdates((prev) => ({ ...prev, [team.id]: e.target.value }))
+                      }
+                      className="flex-1 p-2 rounded text-sm"
+                      style={{
+                        border: '1px solid var(--muted-slate)',
+                        background: 'var(--card-white)',
+                      }}
                     >
                       <option value="">Unassigned</option>
                       {pools.map((pool) => (
-                        <option key={pool.id} value={pool.id}>{pool.name}</option>
+                        <option key={pool.id} value={pool.id}>
+                          {pool.name}
+                        </option>
                       ))}
                     </select>
                     <button
                       onClick={() => handleAssignTeamPool(team.id, teamPoolUpdates[team.id] ?? '')}
-                      className="px-3 py-2 bg-[#E3A355] text-black rounded text-sm font-semibold"
+                      className="px-3 py-2 rounded text-sm font-semibold"
+                      style={{ background: 'var(--veldt-ochre)', color: '#000' }}
                     >
                       Assign
                     </button>
@@ -330,8 +426,14 @@ export default function AdminPage() {
           </section>
 
           <section className="bg-[#162217] border border-[#234723] p-5 rounded-xl space-y-4 lg:col-span-2">
-            <div className="flex items-center gap-2 text-[#E3A355] font-bold uppercase tracking-[0.2em] text-xs">
+            <div
+              className="flex items-center gap-2 font-bold uppercase tracking-[0.2em] text-xs"
+              style={{ color: 'var(--veldt-green)' }}
+            >
               <Calendar size={16} /> Schedule Fixtures
+            </div>
+            <div className="mt-3">
+              <CSVUploader tournamentId={selectedTournament} />
             </div>
             <form onSubmit={handleScheduleFixture} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -344,7 +446,9 @@ export default function AdminPage() {
                   >
                     <option value="">No Pool / Exhibition</option>
                     {pools.map((pool) => (
-                      <option key={pool.id} value={pool.id}>{pool.name}</option>
+                      <option key={pool.id} value={pool.id}>
+                        {pool.name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -358,7 +462,9 @@ export default function AdminPage() {
                   >
                     <option value="">Select Home Team</option>
                     {teams.map((team) => (
-                      <option key={team.id} value={team.id}>{team.name}</option>
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -372,7 +478,9 @@ export default function AdminPage() {
                   >
                     <option value="">Select Away Team</option>
                     {teams.map((team) => (
-                      <option key={team.id} value={team.id}>{team.name}</option>
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -411,21 +519,33 @@ export default function AdminPage() {
             </form>
 
             <div className="mt-4 space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-[#667F66]">Scheduled Fixtures</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-[#667F66]">
+                Scheduled Fixtures
+              </h3>
               {matches.length === 0 ? (
                 <p className="text-sm text-[#A0AC93]">No fixtures scheduled yet.</p>
               ) : (
                 <div className="space-y-2">
                   {matches.map((match) => (
-                    <div key={match.id} className="rounded-xl border border-[#234723] bg-[#0B1610] p-4">
+                    <Link
+                      key={match.id}
+                      href={`/scorekeeper/${match.id}`}
+                      className="block rounded-xl border border-[#234723] bg-[#0B1610] p-4 transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-white">
-                        <span>{match.home_team?.name ?? 'Home'} vs {match.away_team?.name ?? 'Away'}</span>
+                        <span>
+                          {match.home_team?.name ?? 'Home'} vs {match.away_team?.name ?? 'Away'}
+                        </span>
                         <span className="text-[#E3A355]">{poolNameById(match.pool_group_id)}</span>
                       </div>
                       <div className="mt-2 text-xs text-[#A0AC93]">
-                        {match.home_cap_color ?? 'white'} / {match.away_cap_color ?? 'blue'} • {match.status ?? 'scheduled'}
+                        {match.home_cap_color ?? 'white'} / {match.away_cap_color ?? 'blue'} •{' '}
+                        {match.status ?? 'scheduled'}
                       </div>
-                    </div>
+                      <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#E3A355] px-3 py-2 text-xs font-bold text-black">
+                        Open Scorekeeper
+                      </div>
+                    </Link>
                   ))}
                 </div>
               )}

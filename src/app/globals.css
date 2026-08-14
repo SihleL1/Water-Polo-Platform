@@ -2,8 +2,14 @@ html,
 body {
   padding: 0;
   margin: 0;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #F8F9FA;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  background: #f8f9fa;
   color: #0f172a;
 }
 
@@ -14,10 +20,10 @@ body {
 /* Utility colors for the Veldt Analytics light theme */
 :root {
   --veldt-green: #234723;
-  --veldt-ochre: #D8913B;
-  --veldt-ochre-2: #B87B2E;
-  --bg-soft: #F8F9FA;
-  --card-white: #FFFFFF;
-  --muted-slate: #E2E8F0;
-  --muted-text: #64748B;
+  --veldt-ochre: #d8913b;
+  --veldt-ochre-2: #b87b2e;
+  --bg-soft: #f8f9fa;
+  --card-white: #ffffff;
+  --muted-slate: #e2e8f0;
+  --muted-text: #64748b;
 }

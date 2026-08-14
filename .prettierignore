@@ -1,0 +1,9 @@
+.next
+node_modules
+/build
+/dist
+.env.local
+logos/
+public/logos/
+*.log
+*.tsbuildinfo
