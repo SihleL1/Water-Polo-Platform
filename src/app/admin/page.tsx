@@ -21,6 +21,65 @@ type MatchItem = {
 };
 
 export default function AdminPage() {
+  const [session, setSession] = useState<any>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+
+  const handleSignIn = async () => {
+    try {
+      await supabase.auth.signInWithOAuth({ provider: 'github' });
+    } catch (err) {
+      console.error('Sign-in error', err);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('devSignIn') === '1') {
+            if (mounted) setSession({ user: { id: 'dev' } });
+            if (mounted) setLoadingAuth(false);
+            return;
+          }
+        }
+        const {
+          data: { session: s },
+        } = await supabase.auth.getSession();
+        if (mounted) setSession(s);
+      } catch (err) {
+        console.error('auth check', err);
+      } finally {
+        if (mounted) setLoadingAuth(false);
+      }
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sessionData) => {
+      setSession(sessionData ?? null);
+    });
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  const getAccessToken = async () => {
+    try {
+      const {
+        data: { session: s },
+      } = await supabase.auth.getSession();
+      // Dev-mode sign-in shortcut via query param
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('devSignIn') === '1') return 'dev-token';
+      }
+      return (s as any)?.access_token ?? null;
+    } catch (err) {
+      console.error('get token', err);
+      return null;
+    }
+  };
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<string>('');
 
@@ -134,32 +193,32 @@ export default function AdminPage() {
   const handleCreateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tournamentName) return;
-    const { data, error } = await supabase
-      .from('tournaments')
-      .insert([{ name: tournamentName }])
-      .select()
-      .single();
-    if (error) {
-      console.error(error);
-      return;
-    }
+    const token = await getAccessToken();
+    if (!token) return console.error('no token');
+    const res = await fetch('/api/admin/tournaments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: tournamentName }),
+    });
+    const json = await res.json();
+    if (!res.ok) return console.error(json);
     setTournamentName('');
-    if (data) {
-      await loadTournaments();
-      setSelectedTournament(data.id);
-    }
+    await loadTournaments();
+    setSelectedTournament(json.data?.id ?? '');
   };
 
   const handleCreatePool = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!poolName || !selectedTournament) return;
-    const { error } = await supabase
-      .from('pool_groups')
-      .insert([{ tournament_id: selectedTournament, name: poolName }]);
-    if (error) {
-      console.error(error);
-      return;
-    }
+    const token = await getAccessToken();
+    if (!token) return console.error('no token');
+    const res = await fetch('/api/admin/pools', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ tournament_id: selectedTournament, name: poolName }),
+    });
+    const json = await res.json();
+    if (!res.ok) return console.error(json);
     setPoolName('');
     loadPools(selectedTournament);
   };
@@ -167,39 +226,46 @@ export default function AdminPage() {
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName || !selectedTournament) return;
-    const { error } = await supabase.from('teams').insert([
-      {
+    const token = await getAccessToken();
+    if (!token) return console.error('no token');
+    const res = await fetch('/api/admin/teams', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
         name: newTeamName,
         tournament_id: selectedTournament,
         pool_group_id: newTeamPoolId || null,
-      },
-    ]);
-    if (error) {
-      console.error(error);
-      return;
-    }
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) return console.error(json);
     setNewTeamName('');
     setNewTeamPoolId('');
     loadTeams(selectedTournament);
   };
 
   const handleAssignTeamPool = async (teamId: string, poolId: string) => {
-    const { error } = await supabase
-      .from('teams')
-      .update({ pool_group_id: poolId || null })
-      .eq('id', teamId);
-    if (error) {
-      console.error(error);
-      return;
-    }
+    const token = await getAccessToken();
+    if (!token) return console.error('no token');
+    const res = await fetch(`/api/admin/teams/${teamId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pool_group_id: poolId || null }),
+    });
+    const json = await res.json();
+    if (!res.ok) return console.error(json);
     loadTeams(selectedTournament);
   };
 
   const handleScheduleFixture = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTournament || !homeId || !awayId || homeId === awayId) return;
-    const { error } = await supabase.from('matches').insert([
-      {
+    const token = await getAccessToken();
+    if (!token) return console.error('no token');
+    const res = await fetch('/api/admin/matches', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
         tournament_id: selectedTournament,
         pool_group_id: selectedPoolId || null,
         home_team_id: homeId,
@@ -207,12 +273,10 @@ export default function AdminPage() {
         home_cap_color: homeCap,
         away_cap_color: awayCap,
         status: 'scheduled',
-      },
-    ]);
-    if (error) {
-      console.error(error);
-      return;
-    }
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) return console.error(json);
     setHomeId('');
     setAwayId('');
     setSelectedPoolId('');
@@ -221,6 +285,36 @@ export default function AdminPage() {
 
   const poolNameById = (poolId?: string | null) =>
     pools.find((pool) => pool.id === poolId)?.name ?? 'Unassigned';
+
+  if (loadingAuth) {
+    return (
+      <div style={{ background: 'var(--bg-soft)' }} className="min-h-screen p-6 font-sans">
+        <Header />
+        <div className="max-w-6xl mx-auto text-center mt-20">Checking authentication...</div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div style={{ background: 'var(--bg-soft)' }} className="min-h-screen p-6 font-sans">
+        <Header />
+        <div className="max-w-6xl mx-auto text-center mt-20">
+          <h2 className="text-xl font-bold">Admin access required</h2>
+          <p className="text-sm text-[#A0AC93] mt-2">Please sign in to access the admin panel.</p>
+          <div className="mt-4">
+            <button
+              onClick={handleSignIn}
+              className="bg-var px-6 py-3 rounded font-bold"
+              style={{ background: 'var(--veldt-ochre)' }}
+            >
+              Sign in with GitHub
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: 'var(--bg-soft)' }} className="min-h-screen p-6 font-sans">

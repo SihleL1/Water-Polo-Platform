@@ -6,12 +6,14 @@ import { supabase } from '@/lib/supabaseClient';
 import ScorekeeperConsole from '@/components/scorekeeper-console';
 import Header from '@/components/Header';
 
+type TeamSummary = { name?: string } | { name?: string }[] | null | undefined;
+
 export default function ScorekeeperPage() {
   const { matchId } = useParams();
   const [match, setMatch] = useState<any>(null);
 
   useEffect(() => {
-    let channel: any;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const fetchMatch = async () => {
       const { data, error } = await supabase
@@ -31,28 +33,16 @@ export default function ScorekeeperPage() {
       }
 
       if (data) {
-        const homeTeamName = (() => {
-          const homeTeam = data.home_team as unknown as
-            { name?: string }[] | { name?: string } | null | undefined;
-          if (Array.isArray(homeTeam)) {
-            return homeTeam[0]?.name ?? null;
-          }
-          return homeTeam?.name ?? null;
-        })();
-
-        const awayTeamName = (() => {
-          const awayTeam = data.away_team as unknown as
-            { name?: string }[] | { name?: string } | null | undefined;
-          if (Array.isArray(awayTeam)) {
-            return awayTeam[0]?.name ?? null;
-          }
-          return awayTeam?.name ?? null;
-        })();
+        const getTeamName = (team: TeamSummary) => {
+          if (!team) return null;
+          if (Array.isArray(team)) return team[0]?.name ?? null;
+          return team.name ?? null;
+        };
 
         setMatch({
           ...data,
-          home_team_name: homeTeamName,
-          away_team_name: awayTeamName,
+          home_team_name: getTeamName(data.home_team as TeamSummary),
+          away_team_name: getTeamName(data.away_team as TeamSummary),
         });
       }
     };
@@ -60,13 +50,12 @@ export default function ScorekeeperPage() {
     if (matchId) {
       fetchMatch();
 
-      // subscribe to realtime updates for this match
       channel = supabase
-        .channel(`public:matches:match:${matchId}`)
+        .channel(`public:matches:match:${String(matchId)}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'matches', filter: `id=eq.${matchId}` },
-          (payload: any) => {
+          (payload: { new?: Record<string, any>; old?: Record<string, any> }) => {
             const newRow = payload.new ?? payload.old ?? payload;
             if (newRow) {
               setMatch((prev: any) => ({ ...(prev || {}), ...newRow }));
@@ -79,7 +68,7 @@ export default function ScorekeeperPage() {
     return () => {
       try {
         if (channel) supabase.removeChannel(channel);
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
