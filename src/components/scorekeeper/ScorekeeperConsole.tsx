@@ -329,47 +329,107 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
     setShotClock(seconds);
   }, []);
 
-  const setPossession = async (nextTeam: 'home' | 'away' | null) => {
-    try {
-      if (!nextTeam) {
-        return;
-      }
+  const setPossession = async (
+nextTeam: 'home' | 'away' | null
+) => {
+try {
+if (!nextTeam) {
+return;
+}
 
-      const nextTeamId = nextTeam === 'home' ? match.home_team_id : match.away_team_id;
+const nextTeamId =
+  nextTeam === 'home'
+    ? match.home_team_id
+    : match.away_team_id;
 
-      if (!nextTeamId) {
-        return;
-      }
+if (!nextTeamId) {
+  return;
+}
 
-      /*
-       * Record the end of the previous possession.
-       */
-      if (possession) {
-        const previousTeamId = possession === 'home' ? match.home_team_id : match.away_team_id;
+/*
+ * Record the end of the previous possession.
+ */
+if (possession) {
+  const previousTeamId =
+    possession === 'home'
+      ? match.home_team_id
+      : match.away_team_id;
 
-        if (previousTeamId) {
-          await supabase.from('match_events').insert({
-            match_id: match.id,
-            team_id: previousTeamId,
-            event_type: 'POSSESSION_END',
-          });
-        }
-      }
-
-      /*
-       * Record the beginning of the new possession.
-       */
-      await supabase.from('match_events').insert({
+  if (previousTeamId) {
+    const {
+      error: endError,
+    } = await supabase
+      .from('match_events')
+      .insert({
         match_id: match.id,
-        team_id: nextTeamId,
-        event_type: 'POSSESSION_START',
+        period,
+        game_clock:
+          formatGameClock(
+            periodClock
+          ),
+        team_id:
+          previousTeamId,
+        primary_player_cap:
+          null,
+        event_category:
+          'POSSESSION_END',
       });
 
-      recordPossessionChange(nextTeam);
-    } catch (error) {
-      console.error('POSSESSION CHANGE ERROR:', error);
+    if (endError) {
+      console.error(
+        'POSSESSION END ERROR:',
+        endError
+      );
     }
-  };
+  }
+}
+
+/*
+ * Record the beginning of the new possession.
+ */
+const {
+  error: startError,
+} = await supabase
+  .from('match_events')
+  .insert({
+    match_id: match.id,
+    period,
+    game_clock:
+      formatGameClock(
+        periodClock
+      ),
+    team_id:
+      nextTeamId,
+    primary_player_cap:
+      null,
+    event_category:
+      'POSSESSION_START',
+  });
+
+if (startError) {
+  console.error(
+    'POSSESSION START ERROR:',
+    startError
+  );
+
+  return;
+}
+
+recordPossessionChange(
+  nextTeam
+);
+
+setPossessionClock(30);
+
+} catch (error) {
+console.error(
+'POSSESSION CHANGE ERROR:',
+error
+);
+}
+};
+
+     
 
   /* =========================================================
      NEXT PERIOD
@@ -495,124 +555,321 @@ export default function ScorekeeperConsole({ match }: MatchProps) {
   ========================================================= */
   const selectedCap = selectedTeam === 'home' ? homeSelectedCap : awaySelectedCap;
 
-  const logEvent = async (eventType: string) => {
-    console.log('LOGGING EVENT:', eventType);
+  const logEvent = async (
+eventType: string
+) => {
+console.log(
+'LOGGING EVENT:',
+eventType
+);
 
-    const isHome = selectedTeam === 'home';
+const isHome =
+selectedTeam === 'home';
 
-    const activeTeamId = isHome ? match.home_team_id : match.away_team_id;
+const activeTeamId =
+isHome
+? match.home_team_id
+: match.away_team_id;
 
-    let newHomeScore = homeScore;
-    let newAwayScore = awayScore;
+if (!activeTeamId) {
+console.error(
+'No active team ID available.'
+);
 
-    /* GOALS */
+return;
 
-    if (eventType === 'GOAL' || eventType === 'PENALTY_GOAL') {
-      if (isHome) {
-        newHomeScore += 1;
-      } else {
-        newAwayScore += 1;
-      }
+}
 
-      setHomeScore(newHomeScore);
-      setAwayScore(newAwayScore);
+let newHomeScore =
+homeScore;
 
-      setShotClock(30);
+let newAwayScore =
+awayScore;
 
-      const nextTeam = isHome ? 'away' : 'home';
+/*
 
-      recordPossessionChange(nextTeam);
-      setPossessionClock(30);
-    }
+* SCORING
+  */
 
-    /* EXCLUSION */
+if (
+eventType === 'GOAL' ||
+eventType === 'PENALTY_GOAL'
+) {
+if (isHome) {
+newHomeScore += 1;
+} else {
+newAwayScore += 1;
+}
 
-    if (eventType === 'EXCLUSION_COMMITTED') {
-      setExclusions((previous) => [
-        ...previous,
-        {
-          id: crypto.randomUUID(),
-          team: selectedTeam,
-          cap: selectedCap,
-          type: 'EXCLUSION_COMMITTED',
-          timeRemaining: 20,
-        },
-      ]);
-    }
+setHomeScore(
+  newHomeScore
+);
 
-    /* ROLLING EXCLUSION */
+setAwayScore(
+  newAwayScore
+);
 
-    if (eventType === 'ROLLING_EXCLUSION') {
-      setExclusions((previous) => [
-        ...previous,
-        {
-          id: crypto.randomUUID(),
-          team: selectedTeam,
-          cap: selectedCap,
-          type: 'ROLLING_EXCLUSION',
-          timeRemaining: 20,
-        },
-      ]);
-    }
+setShotClock(30);
 
-    /* CORNER THROW */
+const nextTeam =
+  isHome
+    ? 'away'
+    : 'home';
 
-    if (eventType === 'CORNER_THROW_20') {
-      setPossessionClock(20);
-      setShotClock(20);
-    }
+recordPossessionChange(
+  nextTeam
+);
 
-    /* TIMEOUT */
+setPossessionClock(
+  30
+);
 
-    if (eventType === 'TIMEOUT') {
-      setTimeouts((previous) => [
-        ...previous,
-        {
-          id: crypto.randomUUID(),
-          team: selectedTeam,
-          timeRemaining: 60,
-        },
-      ]);
-    }
+}
 
-    /* DATABASE EVENT */
+/*
 
-    const { error } = await supabase.from('match_events').insert([
-      {
-        match_id: match.id,
-        period,
-        game_clock: formatGameClock(periodClock),
-        team_id: activeTeamId,
-        primary_player_cap: eventType === 'TIMEOUT' ? null : Number(selectedCap),
-        event_category: eventType,
-      },
-    ]);
+* EXCLUSION
+  */
 
-    if (error) {
-      console.error('Error logging event:', error);
-      return;
-    }
+if (
+eventType ===
+'EXCLUSION_COMMITTED'
+) {
+setExclusions(
+(previous) => [
+...previous,
+{
+id:
+crypto.randomUUID(),
+team:
+selectedTeam,
+cap:
+selectedCap,
+type:
+'EXCLUSION_COMMITTED',
+timeRemaining: 20,
+},
+]
+);
+}
 
-    /* MATCH STATE */
+/*
 
-    const { error: matchError } = await supabase
-      .from('matches')
-      .update({
-        home_score: newHomeScore,
-        away_score: newAwayScore,
-        period,
-        period_clock_seconds: periodClock,
-        shot_clock_seconds: shotClock,
-        is_running: isRunning,
-        home_cap_color: homeCapColor,
-        away_cap_color: awayCapColor,
-      })
-      .eq('id', match.id);
+* ROLLING EXCLUSION
+  */
 
-    if (matchError) {
-      console.error('Error updating match state:', matchError);
-    }
-  };
+if (
+eventType ===
+'ROLLING_EXCLUSION'
+) {
+setExclusions(
+(previous) => [
+...previous,
+{
+id:
+crypto.randomUUID(),
+team:
+selectedTeam,
+cap:
+selectedCap,
+type:
+'ROLLING_EXCLUSION',
+timeRemaining: 20,
+},
+]
+);
+}
+
+/*
+
+* CORNER THROW
+  */
+
+if (
+eventType ===
+'CORNER_THROW_20'
+) {
+setPossessionClock(
+20
+);
+
+setShotClock(
+  20
+);
+
+}
+
+/*
+
+* TIMEOUT
+  */
+
+if (
+eventType ===
+'TIMEOUT'
+) {
+setTimeouts(
+(previous) => [
+...previous,
+{
+id:
+crypto.randomUUID(),
+team:
+selectedTeam,
+timeRemaining: 60,
+},
+]
+);
+}
+
+/*
+
+* SPRINT EVENTS
+*
+* Sprint events reset possession to
+* the team that won the sprint.
+  */
+
+if (
+eventType ===
+'SPRINT_WON'
+) {
+recordPossessionChange(
+selectedTeam
+);
+
+setPossessionClock(
+  30
+);
+
+setShotClock(
+  30
+);
+
+}
+
+if (
+eventType ===
+'SPRINT_LOST'
+) {
+const otherTeam =
+selectedTeam ===
+'home'
+? 'away'
+: 'home';
+
+recordPossessionChange(
+  otherTeam
+);
+
+setPossessionClock(
+  30
+);
+
+setShotClock(
+  30
+);
+
+}
+
+/*
+
+* DATABASE EVENT
+*
+* IMPORTANT:
+* The database column is event_category,
+* not event_type.
+  */
+
+const {
+error,
+} = await supabase
+.from('match_events')
+.insert([
+{
+match_id:
+match.id,
+
+    period,
+
+    game_clock:
+      formatGameClock(
+        periodClock
+      ),
+
+    team_id:
+      activeTeamId,
+
+    primary_player_cap:
+      eventType ===
+      'TIMEOUT'
+        ? null
+        : Number(
+            selectedCap
+          ),
+
+    event_category:
+      eventType,
+  },
+]);
+
+if (error) {
+console.error(
+'Error logging event:',
+error
+);
+
+return;
+
+}
+
+/*
+
+* MATCH STATE
+  */
+
+const {
+error: matchError,
+} =
+await supabase
+.from('matches')
+.update({
+home_score:
+newHomeScore,
+
+    away_score:
+      newAwayScore,
+
+    period,
+
+    period_clock_seconds:
+      periodClock,
+
+    shot_clock_seconds:
+      shotClock,
+
+    is_running:
+      isRunning,
+
+    home_cap_color:
+      homeCapColor,
+
+    away_cap_color:
+      awayCapColor,
+  })
+  .eq(
+    'id',
+    match.id
+  );
+
+if (matchError) {
+console.error(
+'Error updating match state:',
+matchError
+);
+}
+};
+
 
   /* =========================================================
      DELETE ACTION
