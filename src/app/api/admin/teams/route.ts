@@ -1,31 +1,60 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/lib/supabaseClient';
 
-export async function POST(req: Request) {
-  const supabase = createServerSupabase();
+export async function GET() {
   try {
-    const authHeader = req.headers.get('authorization') || '';
-    const token = authHeader.replace('Bearer ', '') || null;
-    if (!token) return NextResponse.json({ error: 'Missing authorization' }, { status: 401 });
+    const supabase = createServerSupabase();
 
-    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !userData?.user)
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-
-    const body = await req.json();
-    const { name, tournament_id, pool_group_id } = body;
-    if (!name || !tournament_id)
-      return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
-
-    const { data, error } = await supabase
+    const {
+      data,
+      error,
+    } = await supabase
       .from('teams')
-      .insert([{ name, tournament_id, pool_group_id: pool_group_id ?? null }])
-      .select()
-      .single();
+      .select('id, name, city, province')
+      .order('name', {
+        ascending: true,
+      });
 
-    if (error) return NextResponse.json({ error }, { status: 500 });
-    return NextResponse.json({ data });
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    if (error) {
+      console.error(
+        'Error loading teams:',
+        error
+      );
+
+      return NextResponse.json(
+        {
+          error: error.message,
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        data: data ?? [],
+      },
+      {
+        status: 200,
+      }
+    );
+  } catch (error) {
+    console.error(
+      'Unexpected error loading teams:',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to load schools.',
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }

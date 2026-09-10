@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
 import Header from '@/components/Header';
 
 type MatchSummary = {
@@ -19,25 +18,28 @@ export default function ScorekeeperIndexPage() {
 
   useEffect(() => {
     const loadMatches = async () => {
-      const { data, error } = await supabase
-        .from('matches')
-        .select(
-          `
-          id, status, scheduled_time,
-          home_team:teams!matches_home_team_id_fkey(name),
-          away_team:teams!matches_away_team_id_fkey(name)
-        `
-        )
-        .order('scheduled_time', { ascending: true })
-        .limit(50);
+      try {
+        setLoading(true);
 
-      if (error) {
-        console.error(error);
+        const response = await fetch('/api/scorekeeper/matches');
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          console.error('Error loading matches:', result);
+          alert(`Error loading matches: ${result.error || 'Unknown error'}`);
+          return;
+        }
+
+        console.log('Scorekeeper matches loaded:', result.data);
+
+        setMatches(result.data ?? []);
+      } catch (error) {
+        console.error('Unexpected error loading matches:', error);
+        alert('Unable to load fixtures.');
+      } finally {
         setLoading(false);
-        return;
       }
-      setMatches(data ?? []);
-      setLoading(false);
     };
 
     loadMatches();

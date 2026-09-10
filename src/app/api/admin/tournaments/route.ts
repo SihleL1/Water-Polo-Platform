@@ -24,10 +24,20 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const name = body.name;
+    const status = body.status || 'active';
     if (!name) return NextResponse.json({ error: 'Missing name' }, { status: 400 });
 
     // Try real DB insert; if service role not configured in dev bypass, return a fake object
-    const { data, error } = await supabase.from('tournaments').insert([{ name }]).select().single();
+    const { data, error } = await supabase
+      .from('tournaments')
+      .insert([
+        {
+          name,
+          status,
+        },
+      ])
+      .select()
+      .single();
     if (error) {
       if (isDevBypass) {
         const fake = { id: `dev-${Date.now()}`, name };

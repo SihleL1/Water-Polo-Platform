@@ -47,6 +47,7 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
               .from('teams')
               .select('*')
               .eq('name', name)
+              .eq('tournament_id', tournamentId)
               .maybeSingle();
             if (data) return data.id;
             const { data: ins } = await supabase
@@ -67,6 +68,7 @@ export default function CSVUploader({ tournamentId }: { tournamentId?: string })
               .from('pool_groups')
               .select('*')
               .eq('name', row.pool_group_name)
+              .eq('tournament_id', tournamentId)
               .maybeSingle();
             if (data) poolId = data.id;
             else {

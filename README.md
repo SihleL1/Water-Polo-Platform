@@ -36,7 +36,10 @@ Create a `.env.local` file with your Supabase settings:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # required for server-side API routes
 ```
+
+You can copy the example file at `.env.local.example` and fill in your real values.
 
 ## Development Flow
 
