@@ -458,18 +458,15 @@ LOAD TOURNAMENTS
       try {
         setLoadingData(true);
         setError(null);
-        const { data, error: tournamentError } = await supabase
-          .from('tournaments')
-          .select('*')
-          .order('created_at', {
-            ascending: false,
-          });
+        const token = await getAccessToken();
+        if (!token) throw new Error('Your login session has expired. Please sign in with GitHub again.');
+        const response = await fetch('/api/admin/tournaments', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? 'Failed to load tournaments.');
 
-        if (tournamentError) {
-          throw tournamentError;
-        }
-
-        const tournamentRows = (data ?? []) as Tournament[];
+        const tournamentRows = (result.data ?? []) as Tournament[];
 
         setTournaments(tournamentRows);
 
@@ -494,7 +491,7 @@ LOAD TOURNAMENTS
         setLoadingData(false);
       }
     },
-    [selectedTournamentId]
+    [getAccessToken, selectedTournamentId]
   );
   const loadTournamentData = useCallback(async (tournamentId: string) => {
     if (!tournamentId) {
@@ -507,75 +504,22 @@ LOAD TOURNAMENTS
       setLoadingData(true);
       setError(null);
 
-      const [poolsResult, tournamentTeamsResult, matchesResult] = await Promise.all([
-        supabase
-          .from('pool_groups')
-          .select('id,name,tournament_id')
-          .eq('tournament_id', tournamentId)
-          .order('name', {
-            ascending: true,
-          }),
+      const token = await getAccessToken();
+      if (!token) throw new Error('Your login session has expired. Please sign in with GitHub again.');
+      const response = await fetch(
+        `/api/admin/tournaments?tournamentId=${encodeURIComponent(tournamentId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Failed to load tournament data.');
 
-        supabase
-          .from('tournament_teams')
-          .select(
-            `
-              team_id,
-              pool_group_id,
-              participation_type,
-              team:teams(id,name,city,province)
-            `
-          )
-          .eq('tournament_id', tournamentId),
-
-        supabase
-          .from('matches')
-          .select(
-            `
-                id,
-                match_number,
-                tournament_id,
-                pool_group_id,
-                home_team_id,
-                away_team_id,
-                home_score,
-                away_score,
-                home_cap_color,
-                away_cap_color,
-                status,
-                pool_location,
-                scheduled_time,
-                round_type,
-                stage_type,
-                stage_name,
-                stage_order,
-                home_team:teams!matches_home_team_id_fkey(name),
-                away_team:teams!matches_away_team_id_fkey(name),
-                pool_group:pool_groups(name)
-              `
-          )
-          .eq('tournament_id', tournamentId)
-          .order('scheduled_time', {
-            ascending: true,
-            nullsFirst: false,
-          }),
-
-      ]);
-
-      if (poolsResult.error) {
-        throw poolsResult.error;
-      }
-
-      if (tournamentTeamsResult.error) {
-        throw tournamentTeamsResult.error;
-      }
-
-      if (matchesResult.error) {
-        throw matchesResult.error;
-      }
-
-      const teamRows = (tournamentTeamsResult.data ?? [])
-        .flatMap((row) => {
+      const teamRows = (result.teams ?? [])
+        .flatMap(
+          (row: {
+            team?: Team | Team[] | null;
+            pool_group_id?: string | null;
+            participation_type?: unknown;
+          }) => {
           const team = Array.isArray(row.team) ? row.team[0] : row.team;
 
           if (!team) {
@@ -590,14 +534,15 @@ LOAD TOURNAMENTS
               participation_type: normaliseParticipationType(row.participation_type),
             },
           ];
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+          }
+        )
+        .sort((a: Team, b: Team) => a.name.localeCompare(b.name));
 
-      setPools((poolsResult.data ?? []) as Pool[]);
+      setPools((result.pools ?? []) as Pool[]);
 
       setTeams(teamRows);
 
-      setMatches((matchesResult.data ?? []) as Match[]);
+      setMatches((result.matches ?? []) as Match[]);
     } catch (loadError) {
       console.error('Tournament data load failed:', loadError);
 
@@ -605,7 +550,7 @@ LOAD TOURNAMENTS
     } finally {
       setLoadingData(false);
     }
-  }, []);
+  }, [getAccessToken]);
   useEffect(() => {
     loadTournaments();
   }, [loadTournaments]);
