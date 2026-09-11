@@ -2095,9 +2095,10 @@ MAIN ADMIN SCREEN
 
           <div className="mt-6 flex justify-end">
             <button
-              type="button"
-              onClick={() => document.getElementById('create-tournament-form')?.scrollIntoView({ behavior: 'smooth' })}
-              className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90"
+              type="submit"
+              form="create-tournament-form"
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               Create Tournament
