@@ -23,8 +23,16 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const name = body.name;
-    const status = body.status || 'active';
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const startDate = typeof body.startDate === 'string' && body.startDate ? body.startDate : null;
+    const endDate = typeof body.endDate === 'string' && body.endDate ? body.endDate : null;
+    const location = typeof body.location === 'string' && body.location.trim() ? body.location.trim() : null;
+    const competitionCategory =
+      body.competitionCategory === 'BOYS' || body.competitionCategory === 'GIRLS'
+        ? body.competitionCategory
+        : 'GIRLS';
+    const status = typeof body.status === 'string' && body.status ? body.status : 'active';
+
     if (!name) return NextResponse.json({ error: 'Missing name' }, { status: 400 });
 
     // Try real DB insert; if service role not configured in dev bypass, return a fake object
@@ -34,6 +42,10 @@ export async function POST(req: Request) {
         {
           name,
           status,
+          start_date: startDate,
+          end_date: endDate,
+          location,
+          competition_category: competitionCategory,
         },
       ])
       .select()
@@ -45,7 +57,7 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({ error }, { status: 500 });
     }
-    return NextResponse.json({ data });
+    return NextResponse.json({ data, tournament: data });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
