@@ -134,6 +134,7 @@ function normaliseParticipationType(value: unknown): ParticipationType {
   }
   return 'STANDARD';
 }
+
 function normaliseCapColor(
   value: unknown,
   fallback: 'white' | 'blue' | 'dark'
