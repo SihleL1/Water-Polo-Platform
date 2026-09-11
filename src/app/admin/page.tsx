@@ -507,7 +507,7 @@ LOAD TOURNAMENTS
       setLoadingData(true);
       setError(null);
 
-      const [poolsResult, teamsResult, matchesResult, participationResult] = await Promise.all([
+      const [poolsResult, tournamentTeamsResult, matchesResult] = await Promise.all([
         supabase
           .from('pool_groups')
           .select('id,name,tournament_id')
@@ -517,12 +517,16 @@ LOAD TOURNAMENTS
           }),
 
         supabase
-          .from('teams')
-          .select('id,name,city,province,tournament_id,pool_group_id')
-          .eq('tournament_id', tournamentId)
-          .order('name', {
-            ascending: true,
-          }),
+          .from('tournament_teams')
+          .select(
+            `
+              team_id,
+              pool_group_id,
+              participation_type,
+              team:teams(id,name,city,province)
+            `
+          )
+          .eq('tournament_id', tournamentId),
 
         supabase
           .from('matches')
@@ -556,38 +560,38 @@ LOAD TOURNAMENTS
             nullsFirst: false,
           }),
 
-        supabase
-          .from('tournament_teams')
-          .select('team_id,participation_type')
-          .eq('tournament_id', tournamentId),
       ]);
 
       if (poolsResult.error) {
         throw poolsResult.error;
       }
 
-      if (teamsResult.error) {
-        throw teamsResult.error;
+      if (tournamentTeamsResult.error) {
+        throw tournamentTeamsResult.error;
       }
 
       if (matchesResult.error) {
         throw matchesResult.error;
       }
 
-      if (participationResult.error) {
-        throw participationResult.error;
-      }
+      const teamRows = (tournamentTeamsResult.data ?? [])
+        .flatMap((row) => {
+          const team = Array.isArray(row.team) ? row.team[0] : row.team;
 
-      const participationMap = new Map<string, ParticipationType>();
+          if (!team) {
+            return [];
+          }
 
-      for (const row of participationResult.data ?? []) {
-        participationMap.set(row.team_id, normaliseParticipationType(row.participation_type));
-      }
-
-      const teamRows = (teamsResult.data ?? []).map((team) => ({
-        ...(team as Team),
-        participation_type: participationMap.get(team.id) ?? 'STANDARD',
-      }));
+          return [
+            {
+              ...(team as Team),
+              tournament_id: tournamentId,
+              pool_group_id: row.pool_group_id,
+              participation_type: normaliseParticipationType(row.participation_type),
+            },
+          ];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       setPools((poolsResult.data ?? []) as Pool[]);
 
