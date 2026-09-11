@@ -601,28 +601,27 @@ return () => {
 };
 }, []);
 const signIn = async () => {
-setError(null);
-const {
-  error: authError,
-} =
-  await supabase.auth.signInWithOAuth(
-    {
-      provider:
-        'github',
-      options: {
-        redirectTo:
-          `${window.location.origin}/admin`,
-      },
-    }
-  );
+  setError(null);
 
-if (
-  authError
-) {
-  setError(
-    authError.message
-  );
-}
+  const isProduction =
+    window.location.hostname === 'water-polo-platform.vercel.app';
+
+  const redirectUrl = isProduction
+    ? 'https://water-polo-platform.vercel.app/admin'
+    : `${window.location.origin}/admin`;
+
+  const {
+    error: authError,
+  } = await supabase.auth.signInWithOAuth({
+    provider: 'github',
+    options: {
+      redirectTo: redirectUrl,
+    },
+  });
+
+  if (authError) {
+    setError(authError.message);
+  }
 };
 /*
 =========================================================
