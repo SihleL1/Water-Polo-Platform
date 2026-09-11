@@ -829,6 +829,7 @@ UPDATE TEAM POOL
         },
         body: JSON.stringify({
           pool_group_id: poolGroupId || null,
+          tournament_id: selectedTournamentId,
         }),
       });
 
@@ -1351,7 +1352,7 @@ MAIN ADMIN SCREEN
               </div>
             </div>
 
-            <form onSubmit={createTournament} className="space-y-4">
+            <form id="create-tournament-form" onSubmit={createTournament} className="space-y-4">
               <div>
                 <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
                   Tournament Name
@@ -2084,6 +2085,17 @@ MAIN ADMIN SCREEN
             </>
           )}
         </section>
+
+          <div className="mt-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => document.getElementById('create-tournament-form')?.scrollIntoView({ behavior: 'smooth' })}
+              className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" />
+              Create Tournament
+            </button>
+          </div>
 
         <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center justify-between">
