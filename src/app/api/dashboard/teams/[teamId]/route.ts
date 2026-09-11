@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabase } from '@/lib/supabaseClient';
 
+export const dynamic = 'force-dynamic';
+
 type RouteContext = {
   params: {
     teamId: string;

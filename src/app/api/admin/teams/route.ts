@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 
 import { createServerSupabase } from '@/lib/supabaseServer';
 
+export const dynamic = 'force-dynamic';
+
 const VALID_PARTICIPATION_TYPES = [
 'STANDARD',
 'INVITATIONAL',

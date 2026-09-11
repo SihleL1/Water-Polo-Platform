@@ -8,6 +8,8 @@ import type {
   MatchSlot,
 } from '@/lib/tournament-fixtures';
 
+export const dynamic = 'force-dynamic';
+
 /*
  * ============================================================
  * HELPERS

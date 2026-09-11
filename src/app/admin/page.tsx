@@ -1422,14 +1422,7 @@ MAIN ADMIN SCREEN
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Create Tournament
-              </button>
+            
             </form>
           </section>
 
@@ -2250,7 +2243,18 @@ MAIN ADMIN SCREEN
                 );
               })}
             </div>
+
+             <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Create Tournament
+              </button>
+              
           </section>
+
         )}
       </main>
     </div>

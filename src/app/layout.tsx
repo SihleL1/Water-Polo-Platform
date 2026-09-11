@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Water Polo Platform',
   description: 'A local Next.js app scaffold for the Water Polo platform',
