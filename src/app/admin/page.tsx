@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-
+import Papa from 'papaparse';
 import {
   Calendar,
-  ChevronDown,
+  Check,
+  ChevronLeft,
+  ChevronRight,
   FileSpreadsheet,
   Layers,
   LogIn,
@@ -13,14 +15,12 @@ import {
   Trophy,
   Upload,
   Users,
+  X,
 } from 'lucide-react';
-
-import Papa from 'papaparse';
 import Header from '@/components/Header';
 import { supabase } from '@/lib/supabaseClient';
 
-type Category = 'BOYS' | 'GIRLS';
-
+type Category = 'BOYS' | 'GIRLS' | 'MIXED';
 type ParticipationType = 'STANDARD' | 'INVITATIONAL' | 'EXHIBITION';
 
 type SessionUser = {
@@ -39,2186 +39,1360 @@ type Tournament = {
   created_at?: string | null;
 };
 
-type Pool = {
+type StagedPool = { tempId: string; name: string };
+
+type StagedTeam = {
+  tempId: string;
+  name: string;
+  city: string;
+  province: string;
+  poolName: string;
+  participationType: ParticipationType;
+};
+
+type StagedFixture = {
+  tempId: string;
+  matchNumber: number;
+  poolName: string;
+  scheduledTime: string | null;
+  homeTeam: string;
+  awayTeam: string;
+  homeCapColor: 'white' | 'blue' | 'dark';
+  awayCapColor: 'white' | 'blue' | 'dark';
+  poolLocation: string;
+  roundType: string;
+  stageType: string;
+  stageName: string;
+  stageOrder: number | null;
+};
+
+type ExistingTournament = {
   id: string;
   name: string;
-  tournament_id: string;
+  competition_category?: Category | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  location?: string | null;
 };
 
-type Team = {
-  id: string;
-  name: string;
-  city?: string | null;
-  province?: string | null;
-  tournament_id?: string | null;
-  pool_group_id?: string | null;
-  participation_type?: ParticipationType;
-};
+const PARTICIPATION_OPTIONS: { value: ParticipationType; label: string }[] = [
+  { value: 'STANDARD', label: 'Standard' },
+  { value: 'INVITATIONAL', label: 'Invitational' },
+  { value: 'EXHIBITION', label: 'Exhibition' },
+];
 
-type Match = {
-  id: string;
-  match_number?: number | null;
-  tournament_id?: string | null;
-  pool_group_id?: string | null;
-  home_team_id?: string | null;
-  away_team_id?: string | null;
-  home_score?: number | null;
-  away_score?: number | null;
-  home_cap_color?: string | null;
-  away_cap_color?: string | null;
-  status?: string | null;
-  pool_location?: string | null;
-  scheduled_time?: string | null;
-  round_type?: string | null;
-  stage_type?: string | null;
-  stage_name?: string | null;
-  stage_order?: number | null;
-  home_team?: {
-    name?: string | null;
-  } | null;
-  away_team?: {
-    name?: string | null;
-  } | null;
-  pool_group?: {
-    name?: string | null;
-  } | null;
-};
-
-type FixtureRow = {
-  tournament_name: string;
-  match_number: number;
-  pool: string;
-  scheduled_time: string;
-  home_team: string;
-  away_team: string;
-  home_cap_color: 'white' | 'blue' | 'dark';
-  away_cap_color: 'white' | 'blue' | 'dark';
-  pool_location: string;
-  round_type: string;
-  stage_type: string;
-  stage_name: string;
-  stage_order: number | null;
-};
+const STEPS = [
+  { number: 1, label: 'Tournament' },
+  { number: 2, label: 'Pools' },
+  { number: 3, label: 'Teams' },
+  { number: 4, label: 'Fixtures' },
+  { number: 5, label: 'Review' },
+];
 
 const VALID_CAP_COLORS = ['white', 'blue', 'dark'] as const;
-
-const PARTICIPATION_OPTIONS: {
-  value: ParticipationType;
-  label: string;
-}[] = [
-  {
-    value: 'STANDARD',
-    label: 'Standard',
-  },
-  {
-    value: 'INVITATIONAL',
-    label: 'Invitational',
-  },
-  {
-    value: 'EXHIBITION',
-    label: 'Exhibition',
-  },
-];
 
 function normaliseString(value: unknown): string {
   return String(value ?? '').trim();
 }
 
 function normaliseParticipationType(value: unknown): ParticipationType {
-  const normalised = normaliseString(value).toUpperCase();
-  if (normalised === 'INVITATIONAL') {
-    return 'INVITATIONAL';
-  }
-  if (normalised === 'EXHIBITION') {
-    return 'EXHIBITION';
-  }
-  return 'STANDARD';
+  const v = normaliseString(value).toUpperCase();
+  return v === 'INVITATIONAL' || v === 'EXHIBITION' ? v : 'STANDARD';
 }
 
 function normaliseCapColor(
   value: unknown,
   fallback: 'white' | 'blue' | 'dark'
 ): 'white' | 'blue' | 'dark' {
-  const normalised = normaliseString(value).toLowerCase();
-  return VALID_CAP_COLORS.includes(normalised as 'white' | 'blue' | 'dark')
-    ? (normalised as 'white' | 'blue' | 'dark')
+  const v = normaliseString(value).toLowerCase();
+  return VALID_CAP_COLORS.includes(v as (typeof VALID_CAP_COLORS)[number])
+    ? (v as 'white' | 'blue' | 'dark')
     : fallback;
 }
-function formatParticipationType(value: ParticipationType): string {
-  switch (value) {
-    case 'INVITATIONAL':
-      return 'Invitational';
-    case 'EXHIBITION':
-      return 'Exhibition';
 
-    default:
-      return 'Standard';
-  }
-}
-function participationClasses(value: ParticipationType): string {
-  switch (value) {
-    case 'INVITATIONAL':
-      return 'border-amber-200 bg-amber-50 text-amber-700';
-    case 'EXHIBITION':
-      return 'border-slate-200 bg-slate-100 text-slate-600';
-
-    default:
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  }
-}
-function parseSpreadsheetDate(value: unknown): string | null {
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) {
-      return null;
-    }
-    return value.toISOString();
-  }
+function parseFixtureDate(value: unknown): string | null {
   const text = normaliseString(value);
-  if (!text) {
-    return null;
-  }
-  const directMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})$/);
-  if (directMatch) {
-    const [, year, month, day, hour, minute] = directMatch;
-    const date = new Date(`${year}-${month}-${day}T${hour.padStart(2, '0')}:${minute}:00+02:00`);
+  if (!text) return null;
 
-    if (!Number.isNaN(date.getTime())) {
-      return date.toISOString();
-    }
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})$/);
+  if (iso) {
+    const [, y, m, d, h, min] = iso;
+    const date = new Date(`${y}-${m}-${d}T${h.padStart(2, '0')}:${min}:00+02:00`);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
   }
-  const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString();
-  }
-  return null;
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
-function createFixtureFromRow(row: Record<string, unknown>): FixtureRow {
-  const rawMatchNumber = normaliseString(row.match_number);
-  const rawStageOrder = normaliseString(row.stage_order);
-  const stageOrder = rawStageOrder ? Number(rawStageOrder) : null;
+
+function createFixture(row: Record<string, unknown>, index: number): StagedFixture {
+  const matchNumberText = normaliseString(row.match_number ?? row.match ?? row.number);
+  const stageOrderText = normaliseString(row.stage_order);
+  const rawPool = normaliseString(row.pool ?? row.group ?? row.pool_group);
+  const rawStageType = normaliseString(row.stage_type ?? row.stage ?? row.stageType);
+  const stageType = rawStageType ? rawStageType.toUpperCase() : rawPool ? 'POOL' : 'KNOCKOUT';
+  const stageName =
+    normaliseString(row.stage_name ?? row.stageName) ||
+    (stageType === 'POOL' ? 'Pool Stage' : 'Knockout');
+
+  const scheduledTime = parseFixtureDate(row.scheduled_time ?? row.date_time ?? row.datetime);
+
   return {
-    tournament_name: normaliseString(row.tournament_name),
-    match_number: Number(rawMatchNumber || 0),
-    pool: normaliseString(row.pool),
-    scheduled_time: normaliseString(row.scheduled_time),
-    home_team: normaliseString(row.home_team),
-    away_team: normaliseString(row.away_team),
-    home_cap_color: normaliseCapColor(row.home_cap_color, 'white'),
-    away_cap_color: normaliseCapColor(row.away_cap_color, 'blue'),
-    pool_location: normaliseString(row.pool_location),
-    round_type: normaliseString(row.round_type) || 'Pool',
-    stage_type: normaliseString(row.stage_type) || 'POOL',
-    stage_name: normaliseString(row.stage_name),
-    stage_order: Number.isFinite(stageOrder) ? stageOrder : null,
+    tempId: `fixture-${index}-${Date.now()}`,
+    matchNumber: Number(matchNumberText),
+    poolName: rawPool,
+    scheduledTime,
+    homeTeam: normaliseString(row.home_team ?? row.home ?? row.home_team_name),
+    awayTeam: normaliseString(row.away_team ?? row.away ?? row.away_team_name),
+    homeCapColor: normaliseCapColor(row.home_cap_color, 'white'),
+    awayCapColor: normaliseCapColor(row.away_cap_color, 'blue'),
+    poolLocation: normaliseString(row.pool_location ?? row.location),
+    roundType:
+      normaliseString(row.round_type ?? row.round) || (stageType === 'POOL' ? 'Pool' : 'Knockout'),
+    stageType,
+    stageName,
+    stageOrder: stageOrderText ? Number(stageOrderText) : stageType === 'POOL' ? 1 : null,
   };
 }
-function validateFixture(fixture: FixtureRow): string[] {
+
+function parseMatchSlot(
+  value: string
+): { type: 'MATCH_WINNER' | 'MATCH_LOSER'; sourceMatchNumber: number } | null {
+  const text = normaliseString(value).toLowerCase();
+  const match = text.match(/\b(winner|loser)\s+(?:game|match)\s*(\d+)\b/);
+  if (!match) return null;
+  return {
+    type: match[1] === 'winner' ? 'MATCH_WINNER' : 'MATCH_LOSER',
+    sourceMatchNumber: Number(match[2]),
+  };
+}
+
+function getFixtureErrors(
+  fixture: StagedFixture,
+  poolNames: Set<string>,
+  stagedTeamNames: Set<string>
+): string[] {
   const errors: string[] = [];
-  if (!fixture.tournament_name) {
-    errors.push('Tournament name is missing.');
+  const poolKey = fixture.poolName.toLowerCase();
+  const homeKey = fixture.homeTeam.toLowerCase();
+  const awayKey = fixture.awayTeam.toLowerCase();
+
+  if (!Number.isFinite(fixture.matchNumber) || fixture.matchNumber <= 0) {
+    errors.push('match number must be a positive number');
   }
-  if (!Number.isFinite(fixture.match_number) || fixture.match_number <= 0) {
-    errors.push('Match number must be a positive number.');
+  if (!fixture.homeTeam) errors.push('home team is missing');
+  if (!fixture.awayTeam) errors.push('away team is missing');
+  if (fixture.homeTeam && fixture.awayTeam && homeKey === awayKey) {
+    errors.push('home and away teams cannot be the same');
   }
-  if (!fixture.pool) {
-    errors.push('Pool is missing.');
+  if (fixture.stageType === 'POOL' && !fixture.poolName) {
+    errors.push('pool is required for a pool-stage fixture');
   }
-  if (!fixture.home_team) {
-    errors.push('Home team is missing.');
+  if (fixture.poolName && fixture.stageType === 'POOL' && !poolNames.has(poolKey)) {
+    errors.push(`pool "${fixture.poolName}" is not in the staged pools`);
   }
-  if (!fixture.away_team) {
-    errors.push('Away team is missing.');
+  if (fixture.stageType !== 'POOL' && fixture.poolName && !poolNames.has(poolKey)) {
+    errors.push(`pool "${fixture.poolName}" is not in the staged pools`);
   }
-  if (
-    fixture.home_team &&
-    fixture.away_team &&
-    fixture.home_team.toLowerCase() === fixture.away_team.toLowerCase()
-  ) {
-    errors.push('Home and away teams cannot be the same.');
+  const homeSlot = parseMatchSlot(fixture.homeTeam);
+  const awaySlot = parseMatchSlot(fixture.awayTeam);
+  if (fixture.homeTeam && !stagedTeamNames.has(homeKey) && !homeSlot) {
+    errors.push(`home team "${fixture.homeTeam}" is not in the staged teams`);
   }
-  if (!fixture.scheduled_time) {
-    errors.push('Scheduled time is missing.');
-  } else if (!parseSpreadsheetDate(fixture.scheduled_time)) {
-    errors.push('Scheduled time could not be parsed.');
+  if (fixture.awayTeam && !stagedTeamNames.has(awayKey) && !awaySlot) {
+    errors.push(`away team "${fixture.awayTeam}" is not in the staged teams`);
   }
+  if (fixture.homeTeam && (homeKey.includes('winner') || homeKey.includes('loser'))) {
+    if (!homeSlot)
+      errors.push(`home slot "${fixture.homeTeam}" must reference Winner Game N or Loser Game N`);
+  }
+  if (fixture.awayTeam && (awayKey.includes('winner') || awayKey.includes('loser'))) {
+    if (!awaySlot)
+      errors.push(`away slot "${fixture.awayTeam}" must reference Winner Game N or Loser Game N`);
+  }
+  if (!fixture.scheduledTime) errors.push('scheduled time is missing or invalid');
   return errors;
 }
-function formatDate(value?: string | null): string {
-  if (!value) {
-    return 'Not set';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleDateString('en-ZA', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+
+function statusLabel(category: Category | null | undefined): string {
+  return category === 'BOYS' ? 'Boys' : category === 'GIRLS' ? 'Girls' : 'Mixed';
 }
-function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return 'Not scheduled';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString('en-ZA', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
-function statusClasses(status?: string | null): string {
-  const value = normaliseString(status).toUpperCase();
-  if (value === 'LIVE' || value === 'IN_PROGRESS' || value === 'RUNNING') {
-    return 'border-red-200 bg-red-50 text-red-700';
-  }
-  if (value === 'COMPLETED' || value === 'FINAL' || value === 'FINISHED') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  }
-  return 'border-slate-200 bg-slate-100 text-slate-600';
-}
-function displayStatus(status?: string | null): string {
-  const value = normaliseString(status).toUpperCase();
-  if (value === 'IN_PROGRESS' || value === 'RUNNING') {
-    return 'Live';
-  }
-  if (value === 'COMPLETED' || value === 'FINAL' || value === 'FINISHED') {
-    return 'Completed';
-  }
-  if (!value) {
-    return 'Scheduled';
-  }
-  return value
-    .toLowerCase()
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
-}
+
 export default function AdminPage() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [selectedTournamentId, setSelectedTournamentId] = useState('');
-  const [pools, setPools] = useState<Pool[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [matches, setMatches] = useState<Match[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingData, setLoadingData] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [existingTournaments, setExistingTournaments] = useState<ExistingTournament[]>([]);
+  const [selectedExistingTournamentId, setSelectedExistingTournamentId] = useState('');
+
   const [tournamentName, setTournamentName] = useState('');
   const [tournamentCategory, setTournamentCategory] = useState<Category>('GIRLS');
   const [tournamentStartDate, setTournamentStartDate] = useState('');
   const [tournamentEndDate, setTournamentEndDate] = useState('');
   const [tournamentLocation, setTournamentLocation] = useState('');
-  const [poolName, setPoolName] = useState('');
+
+  const [stagedPools, setStagedPools] = useState<StagedPool[]>([]);
+  const [newPoolName, setNewPoolName] = useState('');
+
+  const [stagedTeams, setStagedTeams] = useState<StagedTeam[]>([]);
   const [teamName, setTeamName] = useState('');
   const [teamCity, setTeamCity] = useState('');
   const [teamProvince, setTeamProvince] = useState('');
-  const [selectedPoolId, setSelectedPoolId] = useState('');
-  const [participationType, setParticipationType] = useState<ParticipationType>('STANDARD');
-  const [homeTeamId, setHomeTeamId] = useState('');
-  const [awayTeamId, setAwayTeamId] = useState('');
-  const [fixtureDate, setFixtureDate] = useState('');
-  const [fixtureTime, setFixtureTime] = useState('');
-  const [fixturePoolId, setFixturePoolId] = useState('');
-  const [fixturePoolLocation, setFixturePoolLocation] = useState('');
-  const [fixtureMatchNumber, setFixtureMatchNumber] = useState('');
-  const [fixtureRoundType, setFixtureRoundType] = useState('Pool');
-  const [fixtureStageType, setFixtureStageType] = useState('POOL');
-  const [fixtureStageName, setFixtureStageName] = useState('');
-  const [fixtureStageOrder, setFixtureStageOrder] = useState('');
-  const [fixtureHomeCap, setFixtureHomeCap] = useState<'white' | 'blue' | 'dark'>('white');
-  const [fixtureAwayCap, setFixtureAwayCap] = useState<'white' | 'blue' | 'dark'>('blue');
+  const [teamPoolName, setTeamPoolName] = useState('');
+  const [teamParticipationType, setTeamParticipationType] = useState<ParticipationType>('STANDARD');
+
+  const [stagedFixtures, setStagedFixtures] = useState<StagedFixture[]>([]);
   const [fixtureFileName, setFixtureFileName] = useState('');
-  const [fixturePreview, setFixturePreview] = useState<FixtureRow[]>([]);
-  const [fixtureImportErrors, setFixtureImportErrors] = useState<string[]>([]);
-  const [importingFixtures, setImportingFixtures] = useState(false);
-  /*
+  const [fixtureErrors, setFixtureErrors] = useState<string[]>([]);
 
-AUTHENTICATION
-
-*/
   const getAccessToken = useCallback(async () => {
-    try {
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('devSignIn') === '1') {
-          return 'dev-token';
-        }
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      return session?.access_token ?? null;
-    } catch (authError) {
-      console.error('Failed to get access token:', authError);
-
-      return null;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('devSignIn') === '1') return 'dev-token';
     }
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
   }, []);
+
+  const loadExistingTournaments = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    const response = await fetch('/api/admin/tournaments', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+    if (response.ok) {
+      setExistingTournaments((result.data ?? []) as ExistingTournament[]);
+      if (!selectedExistingTournamentId && result.data?.[0]?.id) {
+        setSelectedExistingTournamentId(result.data[0].id);
+      }
+    }
+  }, [getAccessToken, selectedExistingTournamentId]);
+
   useEffect(() => {
     let mounted = true;
     async function loadSession() {
       try {
-        const devSignIn = new URLSearchParams(window.location.search).get('devSignIn');
-
-        if (devSignIn === '1') {
+        if (new URLSearchParams(window.location.search).get('devSignIn') === '1') {
           if (mounted) {
-            setUser({
-              id: 'dev',
-              email: 'dev@veldt.local',
-            });
-
+            setUser({ id: 'dev', email: 'dev@veldt.local' });
             setAuthLoading(false);
           }
-
           return;
         }
-
         const { data } = await supabase.auth.getSession();
-
         if (mounted) {
-          setUser(data.session?.user ? (data.session.user as SessionUser) : null);
-
+          setUser((data.session?.user as SessionUser | undefined) ?? null);
           setAuthLoading(false);
         }
-      } catch (authError) {
-        console.error('Failed to load auth session:', authError);
-
-        if (mounted) {
-          setAuthLoading(false);
-        }
+      } catch {
+        if (mounted) setAuthLoading(false);
       }
     }
-
     loadSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (mounted) {
-        setUser(session?.user ? (session.user as SessionUser) : null);
-
+        setUser((session?.user as SessionUser | undefined) ?? null);
         setAuthLoading(false);
       }
     });
-
     return () => {
       mounted = false;
-      authListener.subscription.unsubscribe();
+      listener.subscription.unsubscribe();
     };
   }, []);
-  const signIn = async () => {
-    try {
-      setError(null);
-      setMessage(null);
-      const redirectUrl =
-        window.location.hostname === 'water-polo-platform.vercel.app'
-          ? 'https://water-polo-platform.vercel.app/admin'
-          : `${window.location.origin}/admin`;
 
-      const { error: authError } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
-        options: {
-          redirectTo: redirectUrl,
-        },
-      });
+  useEffect(() => {
+    if (user) void loadExistingTournaments();
+  }, [user, loadExistingTournaments]);
 
-      if (authError) {
-        throw authError;
-      }
-    } catch (authError) {
-      console.error('GitHub sign-in failed:', authError);
-
-      setError(authError instanceof Error ? authError.message : 'GitHub sign-in failed.');
-    }
-  };
-  const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-      setUser(null);
-    } catch (signOutError) {
-      console.error('Sign out failed:', signOutError);
-    }
-  };
-  /*
-
-LOAD TOURNAMENTS
-
-*/
-  const loadTournaments = useCallback(
-    async (preserveSelection = true) => {
-      try {
-        setLoadingData(true);
-        setError(null);
-        const token = await getAccessToken();
-        if (!token) throw new Error('Your login session has expired. Please sign in with GitHub again.');
-        const response = await fetch('/api/admin/tournaments', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error ?? 'Failed to load tournaments.');
-
-        const tournamentRows = (result.data ?? []) as Tournament[];
-
-        setTournaments(tournamentRows);
-
-        if (
-          preserveSelection &&
-          selectedTournamentId &&
-          tournamentRows.some((tournament) => tournament.id === selectedTournamentId)
-        ) {
-          return;
-        }
-
-        if (tournamentRows.length) {
-          setSelectedTournamentId(tournamentRows[0].id);
-        } else {
-          setSelectedTournamentId('');
-        }
-      } catch (loadError) {
-        console.error('Tournament load failed:', loadError);
-
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load tournaments.');
-      } finally {
-        setLoadingData(false);
-      }
-    },
-    [getAccessToken, selectedTournamentId]
+  const tournamentComplete = Boolean(
+    tournamentName.trim() && tournamentStartDate && tournamentEndDate && tournamentLocation.trim()
   );
-  const loadTournamentData = useCallback(async (tournamentId: string) => {
-    if (!tournamentId) {
-      setPools([]);
-      setTeams([]);
-      setMatches([]);
-      return;
-    }
-    try {
-      setLoadingData(true);
-      setError(null);
+  const poolNames = useMemo(
+    () => new Set(stagedPools.map((pool) => pool.name.trim().toLowerCase())),
+    [stagedPools]
+  );
+  const teamNames = useMemo(
+    () => new Set(stagedTeams.map((team) => team.name.trim().toLowerCase())),
+    [stagedTeams]
+  );
+  const allFixtureErrors = useMemo(
+    () => stagedFixtures.flatMap((fixture) => getFixtureErrors(fixture, poolNames, teamNames)),
+    [stagedFixtures, poolNames, teamNames]
+  );
+  const duplicateMatchNumbers = useMemo(() => {
+    const counts = new Map<number, number>();
+    stagedFixtures.forEach((fixture) =>
+      counts.set(fixture.matchNumber, (counts.get(fixture.matchNumber) ?? 0) + 1)
+    );
+    return [...counts.entries()].filter(([, count]) => count > 1).map(([number]) => number);
+  }, [stagedFixtures]);
+  const reviewReady =
+    tournamentComplete &&
+    stagedPools.length > 0 &&
+    stagedTeams.length > 0 &&
+    stagedFixtures.length > 0 &&
+    allFixtureErrors.length === 0 &&
+    duplicateMatchNumbers.length === 0;
 
-      const token = await getAccessToken();
-      if (!token) throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      const response = await fetch(
-        `/api/admin/tournaments?tournamentId=${encodeURIComponent(tournamentId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? 'Failed to load tournament data.');
+  const signIn = async () => {
+    const redirectTo =
+      window.location.hostname === 'water-polo-platform.vercel.app'
+        ? 'https://water-polo-platform.vercel.app/admin'
+        : `${window.location.origin}/admin`;
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo },
+    });
+    if (authError) setError(authError.message);
+  };
 
-      const teamRows = (result.teams ?? [])
-        .flatMap(
-          (row: {
-            team?: Team | Team[] | null;
-            pool_group_id?: string | null;
-            participation_type?: unknown;
-          }) => {
-          const team = Array.isArray(row.team) ? row.team[0] : row.team;
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
 
-          if (!team) {
-            return [];
-          }
+  function clearNotices() {
+    setError(null);
+    setMessage(null);
+  }
 
-          return [
-            {
-              ...(team as Team),
-              tournament_id: tournamentId,
-              pool_group_id: row.pool_group_id,
-              participation_type: normaliseParticipationType(row.participation_type),
-            },
-          ];
-          }
+  function addPool() {
+    clearNotices();
+    const name = newPoolName.trim();
+    if (!name) return setError('Enter a pool/group name.');
+    if (poolNames.has(name.toLowerCase())) return setError(`Pool "${name}" is already staged.`);
+    setStagedPools((prev) => [...prev, { tempId: crypto.randomUUID(), name }]);
+    setNewPoolName('');
+  }
+
+  function addTeam() {
+    clearNotices();
+    const name = teamName.trim();
+    if (!name) return setError('Enter a team name.');
+    if (teamPoolName && !poolNames.has(teamPoolName.trim().toLowerCase()))
+      return setError('Select a valid staged pool for the team.');
+    if (teamNames.has(name.toLowerCase())) return setError(`Team "${name}" is already staged.`);
+    setStagedTeams((prev) => [
+      ...prev,
+      {
+        tempId: crypto.randomUUID(),
+        name,
+        city: teamCity.trim(),
+        province: teamProvince.trim(),
+        poolName: teamPoolName.trim(),
+        participationType: teamParticipationType,
+      },
+    ]);
+    setTeamName('');
+    setTeamCity('');
+    setTeamProvince('');
+    setTeamPoolName('');
+    setTeamParticipationType('STANDARD');
+  }
+
+  function removePool(tempId: string) {
+    const pool = stagedPools.find((item) => item.tempId === tempId);
+    setStagedPools((prev) => prev.filter((item) => item.tempId !== tempId));
+    if (pool) {
+      setStagedTeams((prev) =>
+        prev.map((team) =>
+          team.poolName.toLowerCase() === pool.name.toLowerCase() ? { ...team, poolName: '' } : team
         )
-        .sort((a: Team, b: Team) => a.name.localeCompare(b.name));
-
-      setPools((result.pools ?? []) as Pool[]);
-
-      setTeams(teamRows);
-
-      setMatches((result.matches ?? []) as Match[]);
-    } catch (loadError) {
-      console.error('Tournament data load failed:', loadError);
-
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load tournament data.');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAccessToken]);
-  useEffect(() => {
-    loadTournaments();
-  }, [loadTournaments]);
-  useEffect(() => {
-    if (selectedTournamentId) {
-      loadTournamentData(selectedTournamentId);
-    }
-  }, [selectedTournamentId, loadTournamentData]);
-  /*
-
-CREATE TOURNAMENT
-
-*/
-  const createTournament = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!tournamentName.trim()) {
-      setError('Tournament name is required.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
-
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      const response = await fetch('/api/admin/tournaments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: tournamentName.trim(),
-          startDate: tournamentStartDate || null,
-          endDate: tournamentEndDate || null,
-          location: tournamentLocation.trim() || null,
-          competitionCategory: tournamentCategory,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to create tournament.');
-      }
-
-      setMessage('Tournament created successfully.');
-
-      setTournamentName('');
-      setTournamentStartDate('');
-      setTournamentEndDate('');
-      setTournamentLocation('');
-
-      await loadTournaments(false);
-
-      const createdId = result.tournament?.id ?? result.data?.id ?? '';
-
-      if (createdId) {
-        setSelectedTournamentId(createdId);
-      }
-    } catch (createError) {
-      console.error('Create tournament failed:', createError);
-
-      setError(createError instanceof Error ? createError.message : 'Failed to create tournament.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  /*
-
-CREATE POOL
-
-*/
-  const createPool = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedTournamentId) {
-      setError('Select a tournament first.');
-      return;
-    }
-
-    if (!poolName.trim()) {
-      setError('Pool name is required.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
-
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      const response = await fetch('/api/admin/pools', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          tournament_id: selectedTournamentId,
-          name: poolName.trim(),
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to create pool.');
-      }
-
-      setPoolName('');
-
-      setMessage('Pool created successfully.');
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (createError) {
-      console.error('Create pool failed:', createError);
-
-      setError(createError instanceof Error ? createError.message : 'Failed to create pool.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  /*
-
-CREATE / REGISTER TEAM
-
-*/
-  const createTeam = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedTournamentId) {
-      setError('Select a tournament first.');
-      return;
-    }
-
-    if (!teamName.trim()) {
-      setError('Team name is required.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
-
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      const response = await fetch('/api/admin/teams', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: teamName.trim(),
-          tournamentId: selectedTournamentId,
-          poolGroupId: selectedPoolId || null,
-          city: teamCity.trim() || null,
-          province: teamProvince.trim() || null,
-          participationType,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to create team.');
-      }
-
-      setTeamName('');
-      setTeamCity('');
-      setTeamProvince('');
-      setSelectedPoolId('');
-      setParticipationType('STANDARD');
-
-      setMessage('Team added successfully.');
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (createError) {
-      console.error('Create team failed:', createError);
-
-      setError(createError instanceof Error ? createError.message : 'Failed to create team.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  /*
-
-UPDATE TEAM POOL
-
-*/
-  const updateTeamPool = async (teamId: string, poolGroupId: string) => {
-    try {
-      setError(null);
-      setMessage(null);
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      const response = await fetch(`/api/admin/teams/${teamId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          pool_group_id: poolGroupId || null,
-          tournament_id: selectedTournamentId,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to update team pool.');
-      }
-
-      setMessage('Team pool updated.');
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (updateError) {
-      console.error('Update team pool failed:', updateError);
-
-      setError(updateError instanceof Error ? updateError.message : 'Failed to update team pool.');
-    }
-  };
-  /*
-
-UPDATE PARTICIPATION TYPE
-
-*/
-  const updateParticipationType = async (teamId: string, nextType: ParticipationType) => {
-    try {
-      setError(null);
-      setMessage(null);
-      /*
-       * Re-use the existing teams endpoint.
-       * The endpoint creates or updates the
-       * tournament_teams participation record.
-       */
-      const team = teams.find((item) => item.id === teamId);
-
-      if (!team) {
-        throw new Error('Team could not be found.');
-      }
-
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      const response = await fetch('/api/admin/teams', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: team.name,
-          tournamentId: selectedTournamentId,
-          poolGroupId: team.pool_group_id ?? null,
-          city: team.city ?? null,
-          province: team.province ?? null,
-          participationType: nextType,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to update participation type.');
-      }
-
-      setMessage('Participation type updated.');
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (updateError) {
-      console.error('Participation update failed:', updateError);
-
-      setError(
-        updateError instanceof Error ? updateError.message : 'Failed to update participation type.'
+      );
+      setStagedFixtures((prev) =>
+        prev.map((fixture) =>
+          fixture.poolName.toLowerCase() === pool.name.toLowerCase()
+            ? { ...fixture, poolName: '' }
+            : fixture
+        )
       );
     }
-  };
-  /*
+  }
 
-SCHEDULE FIXTURE
+  function removeTeam(tempId: string) {
+    setStagedTeams((prev) => prev.filter((team) => team.tempId !== tempId));
+  }
 
-*/
-  const scheduleFixture = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedTournamentId) {
-      setError('Select a tournament first.');
-      return;
-    }
-
-    if (!homeTeamId || !awayTeamId) {
-      setError('Select both home and away teams.');
-      return;
-    }
-
-    if (homeTeamId === awayTeamId) {
-      setError('Home and away teams cannot be the same.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
-
-      const token = await getAccessToken();
-
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
-      }
-
-      let scheduledTime: string | null = null;
-
-      if (fixtureDate && fixtureTime) {
-        scheduledTime = parseSpreadsheetDate(`${fixtureDate} ${fixtureTime}`);
-      }
-
-      const response = await fetch('/api/admin/matches', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          tournament_id: selectedTournamentId,
-          pool_group_id: fixturePoolId || null,
-          home_team_id: homeTeamId,
-          away_team_id: awayTeamId,
-          home_cap_color: fixtureHomeCap,
-          away_cap_color: fixtureAwayCap,
-          status: 'scheduled',
-          scheduled_time: scheduledTime,
-          pool_location: fixturePoolLocation.trim() || null,
-          match_number: fixtureMatchNumber ? Number(fixtureMatchNumber) : null,
-          round_type: fixtureRoundType,
-          stage_type: fixtureStageType,
-          stage_name: fixtureStageName.trim() || null,
-          stage_order: fixtureStageOrder ? Number(fixtureStageOrder) : null,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error ?? 'Failed to schedule fixture.');
-      }
-
-      setHomeTeamId('');
-      setAwayTeamId('');
-      setFixtureDate('');
-      setFixtureTime('');
-      setFixturePoolId('');
-      setFixturePoolLocation('');
-      setFixtureMatchNumber('');
-      setFixtureStageName('');
-      setFixtureStageOrder('');
-      setFixtureRoundType('Pool');
-      setFixtureStageType('POOL');
-      setFixtureHomeCap('white');
-      setFixtureAwayCap('blue');
-
-      setMessage('Fixture scheduled successfully.');
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (createError) {
-      console.error('Schedule fixture failed:', createError);
-
-      setError(createError instanceof Error ? createError.message : 'Failed to schedule fixture.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  /*
-
-CSV FIXTURE PREVIEW
-
-*/
-  const handleFixtureFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+  function handleFixtureFile(event: React.ChangeEvent<HTMLInputElement>) {
+    clearNotices();
     const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
+    if (!file) return;
     setFixtureFileName(file.name);
-    setFixtureImportErrors([]);
-    setFixturePreview([]);
+    setFixtureErrors([]);
 
     Papa.parse<Record<string, unknown>>(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (header) => header.trim().toLowerCase().replace(/\s+/g, '_'),
       complete: (results) => {
-        const rows = results.data.map(createFixtureFromRow);
-
-        const validationErrors: string[] = [];
-
-        rows.forEach((row, index) => {
-          const errors = validateFixture(row);
-
-          errors.forEach((errorMessage) => {
-            validationErrors.push(`Row ${index + 2}: ${errorMessage}`);
-          });
-        });
-
-        setFixturePreview(rows);
-
-        setFixtureImportErrors(validationErrors);
+        if (results.errors.length) {
+          setFixtureErrors(results.errors.map((item) => item.message));
+          return;
+        }
+        const fixtures = results.data.map(createFixture);
+        const importedTeamNames = new Map<string, StagedTeam>();
+        for (const team of stagedTeams) importedTeamNames.set(team.name.toLowerCase(), team);
+        for (const fixture of fixtures) {
+          for (const name of [fixture.homeTeam, fixture.awayTeam]) {
+            const key = name.toLowerCase();
+            if (
+              name &&
+              !importedTeamNames.has(key) &&
+              !key.includes('winner') &&
+              !key.includes('loser')
+            ) {
+              const poolName = fixture.poolName;
+              importedTeamNames.set(key, {
+                tempId: crypto.randomUUID(),
+                name,
+                city: '',
+                province: '',
+                poolName,
+                participationType: 'STANDARD',
+              });
+            }
+          }
+        }
+        const addedTeams = [...importedTeamNames.values()].filter(
+          (team) => !teamNames.has(team.name.toLowerCase())
+        );
+        if (addedTeams.length) setStagedTeams((prev) => [...prev, ...addedTeams]);
+        setStagedFixtures(fixtures);
+        setFixtureErrors([]);
+        setCurrentStep(4);
       },
-      error: (parseError) => {
-        setFixtureImportErrors([parseError.message]);
-      },
+      error: (parseError) => setFixtureErrors([parseError.message]),
     });
-  };
-  /*
+  }
 
-IMPORT CSV FIXTURES
-
-*/
-  const importFixtures = async () => {
-    if (!fixturePreview.length) {
-      setError('There are no fixtures to import.');
-      return;
-    }
-    if (fixtureImportErrors.length) {
-      setError('Fix the spreadsheet validation errors before importing.');
+  async function finaliseTournament() {
+    clearNotices();
+    if (!reviewReady) {
+      setError('Complete and correct the tournament setup before creating it.');
       return;
     }
 
     try {
-      setImportingFixtures(true);
-      setError(null);
-      setMessage(null);
-
+      setSaving(true);
       const token = await getAccessToken();
+      if (!token) throw new Error('Your login session has expired. Please sign in again.');
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 
-      if (!token) {
-        throw new Error('Your login session has expired. Please sign in with GitHub again.');
+      const tournamentResponse = await fetch('/api/admin/tournaments', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: tournamentName.trim(),
+          startDate: tournamentStartDate,
+          endDate: tournamentEndDate,
+          location: tournamentLocation.trim(),
+          competitionCategory: tournamentCategory,
+          status: 'active',
+        }),
+      });
+      const tournamentResult = await tournamentResponse.json();
+      if (!tournamentResponse.ok)
+        throw new Error(
+          tournamentResult.error?.message ??
+            tournamentResult.error ??
+            'Failed to create tournament.'
+        );
+      const tournamentId = tournamentResult.tournament?.id ?? tournamentResult.data?.id;
+      if (!tournamentId)
+        throw new Error('Tournament was created but no tournament ID was returned.');
+
+      const poolIdByName = new Map<string, string>();
+      for (const pool of stagedPools) {
+        const response = await fetch('/api/admin/pools', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ tournament_id: tournamentId, name: pool.name }),
+        });
+        const result = await response.json();
+        if (!response.ok)
+          throw new Error(
+            result.error?.message ?? result.error ?? `Failed to create ${pool.name}.`
+          );
+        poolIdByName.set(pool.name.toLowerCase(), result.data.id);
       }
 
-      let imported = 0;
-
-      for (const fixture of fixturePreview) {
-        const tournament = tournaments.find(
-          (item) => item.name.trim().toLowerCase() === fixture.tournament_name.trim().toLowerCase()
-        );
-
-        if (!tournament) {
-          throw new Error(`Tournament "${fixture.tournament_name}" was not found.`);
-        }
-
-        const homeTeam = teams.find(
-          (team) => team.name.trim().toLowerCase() === fixture.home_team.trim().toLowerCase()
-        );
-
-        const awayTeam = teams.find(
-          (team) => team.name.trim().toLowerCase() === fixture.away_team.trim().toLowerCase()
-        );
-
-        if (!homeTeam || !awayTeam) {
-          throw new Error(`Could not find both teams for match ${fixture.match_number}.`);
-        }
-
-        const pool = pools.find(
-          (item) =>
-            item.tournament_id === tournament.id &&
-            item.name.trim().toLowerCase() === fixture.pool.trim().toLowerCase()
-        );
-
-        const scheduledTime = parseSpreadsheetDate(fixture.scheduled_time);
-
-        const response = await fetch('/api/admin/matches', {
+      const teamIdByName = new Map<string, string>();
+      for (const team of stagedTeams) {
+        const response = await fetch('/api/admin/teams', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           body: JSON.stringify({
-            tournament_id: tournament.id,
-            pool_group_id: pool?.id ?? null,
-            home_team_id: homeTeam.id,
-            away_team_id: awayTeam.id,
-            home_cap_color: fixture.home_cap_color,
-            away_cap_color: fixture.away_cap_color,
-            status: 'scheduled',
-            scheduled_time: scheduledTime,
-            pool_location: fixture.pool_location || null,
-            match_number: fixture.match_number,
-            round_type: fixture.round_type,
-            stage_type: fixture.stage_type,
-            stage_name: fixture.stage_name || null,
-            stage_order: fixture.stage_order,
+            name: team.name,
+            tournamentId,
+            poolGroupId: team.poolName
+              ? (poolIdByName.get(team.poolName.toLowerCase()) ?? null)
+              : null,
+            city: team.city || null,
+            province: team.province || null,
+            participationType: team.participationType,
           }),
         });
-
         const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(result.error ?? `Failed to import match ${fixture.match_number}.`);
-        }
-
-        imported += 1;
+        if (!response.ok)
+          throw new Error(
+            result.error?.message ?? result.error ?? `Failed to register ${team.name}.`
+          );
+        teamIdByName.set(
+          team.name.toLowerCase(),
+          result.team?.id ?? result.tournamentTeam?.team_id
+        );
       }
 
-      setMessage(`${imported} fixture${imported === 1 ? '' : 's'} imported successfully.`);
+      const createdMatchIdByNumber = new Map<number, string>();
+      const remainingFixtures = [...stagedFixtures].sort((a, b) => a.matchNumber - b.matchNumber);
+      let safetyCounter = 0;
 
+      while (remainingFixtures.length) {
+        const beforeCount = remainingFixtures.length;
+        safetyCounter += 1;
+        if (safetyCounter > stagedFixtures.length + 5) {
+          throw new Error(
+            'Fixture progression could not be resolved. Check Winner/Loser references in the CSV.'
+          );
+        }
+
+        for (let index = remainingFixtures.length - 1; index >= 0; index -= 1) {
+          const fixture = remainingFixtures[index];
+          const poolId = fixture.poolName
+            ? (poolIdByName.get(fixture.poolName.toLowerCase()) ?? null)
+            : null;
+          const homeId = teamIdByName.get(fixture.homeTeam.toLowerCase());
+          const awayId = teamIdByName.get(fixture.awayTeam.toLowerCase());
+          const homeSlot = fixture.homeTeam ? parseMatchSlot(fixture.homeTeam) : null;
+          const awaySlot = fixture.awayTeam ? parseMatchSlot(fixture.awayTeam) : null;
+
+          const homeSourceId = homeSlot
+            ? createdMatchIdByNumber.get(homeSlot.sourceMatchNumber)
+            : null;
+          const awaySourceId = awaySlot
+            ? createdMatchIdByNumber.get(awaySlot.sourceMatchNumber)
+            : null;
+
+          if (homeSlot && !homeSourceId) continue;
+          if (awaySlot && !awaySourceId) continue;
+          if (!homeId && !homeSlot)
+            throw new Error(
+              `Could not resolve home team "${fixture.homeTeam}" for match ${fixture.matchNumber}.`
+            );
+          if (!awayId && !awaySlot)
+            throw new Error(
+              `Could not resolve away team "${fixture.awayTeam}" for match ${fixture.matchNumber}.`
+            );
+
+          const response = await fetch('/api/admin/matches', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              tournament_id: tournamentId,
+              pool_group_id: poolId,
+              home_team_id: homeId ?? null,
+              away_team_id: awayId ?? null,
+              home_slot_type: homeSlot?.type ?? null,
+              home_slot_id: homeSourceId ?? null,
+              away_slot_type: awaySlot?.type ?? null,
+              away_slot_id: awaySourceId ?? null,
+              home_cap_color: fixture.homeCapColor,
+              away_cap_color: fixture.awayCapColor,
+              status: 'scheduled',
+              scheduled_time: fixture.scheduledTime,
+              pool_location: fixture.poolLocation || null,
+              match_number: fixture.matchNumber,
+              round_type: fixture.roundType || null,
+              stage_type: fixture.stageType || (poolId ? 'POOL' : null),
+              stage_name: fixture.stageName || (poolId ? 'Pool Stage' : null),
+              stage_order: fixture.stageOrder,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok)
+            throw new Error(
+              result.error?.message ??
+                result.error ??
+                `Failed to create match ${fixture.matchNumber}.`
+            );
+
+          const createdMatchId = result.data?.id ?? result.match?.id;
+          if (!createdMatchId)
+            throw new Error(
+              `Match ${fixture.matchNumber} was created but no match ID was returned.`
+            );
+          createdMatchIdByNumber.set(fixture.matchNumber, createdMatchId);
+          remainingFixtures.splice(index, 1);
+        }
+
+        if (remainingFixtures.length === beforeCount) {
+          const unresolved = remainingFixtures.map((fixture) => {
+            const refs = [fixture.homeTeam, fixture.awayTeam]
+              .map(parseMatchSlot)
+              .filter(Boolean)
+              .map((slot) => `Match ${slot!.sourceMatchNumber}`);
+            return `Match ${fixture.matchNumber} (${refs.join(' / ') || 'unknown dependency'})`;
+          });
+          throw new Error(`Could not resolve fixture dependencies: ${unresolved.join(', ')}.`);
+        }
+      }
+
+      setMessage(
+        `Tournament "${tournamentName.trim()}" created successfully with ${stagedPools.length} pools, ${stagedTeams.length} teams and ${stagedFixtures.length} fixtures.`
+      );
+      setCurrentStep(1);
+      setTournamentName('');
+      setTournamentStartDate('');
+      setTournamentEndDate('');
+      setTournamentLocation('');
+      setTournamentCategory('GIRLS');
+      setStagedPools([]);
+      setStagedTeams([]);
+      setStagedFixtures([]);
       setFixtureFileName('');
-      setFixturePreview([]);
-      setFixtureImportErrors([]);
-
-      await loadTournamentData(selectedTournamentId);
-    } catch (importError) {
-      console.error('Fixture import failed:', importError);
-
-      setError(importError instanceof Error ? importError.message : 'Fixture import failed.');
+      await loadExistingTournaments();
+    } catch (finaliseError) {
+      console.error('Tournament finalisation failed:', finaliseError);
+      setError(
+        finaliseError instanceof Error ? finaliseError.message : 'Tournament creation failed.'
+      );
     } finally {
-      setImportingFixtures(false);
+      setSaving(false);
     }
-  };
-  /*
+  }
 
-DERIVED DATA
-
-*/
-  const selectedTournament = useMemo(
-    () => tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? null,
-    [tournaments, selectedTournamentId]
-  );
-  const sortedTeams = useMemo(
-    () => [...teams].sort((a, b) => a.name.localeCompare(b.name)),
-    [teams]
-  );
-  const poolNameById = useCallback(
-    (poolId?: string | null) => pools.find((pool) => pool.id === poolId)?.name ?? 'Unassigned',
-    [pools]
-  );
-  /*
-
-AUTH LOADING
-
-*/
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[var(--bg-soft)]">
         <Header />
-        <main className="mx-auto max-w-[1600px] px-4 py-12 sm:px-6 lg:px-10">
-          <div className="flex min-h-[50vh] items-center justify-center">
-            <div className="rounded-2xl border border-veldt-border bg-white px-8 py-10 text-center shadow-sm">
-              <RefreshCw className="mx-auto h-7 w-7 animate-spin text-veldt-ochre" />
-
-              <p className="mt-4 font-semibold text-veldt-green">Checking authentication...</p>
-            </div>
-          </div>
+        <main className="mx-auto max-w-5xl px-4 py-16 text-center">
+          <RefreshCw className="mx-auto h-7 w-7 animate-spin text-veldt-ochre" />
+          <p className="mt-4 font-semibold text-veldt-green">Checking authentication...</p>
         </main>
       </div>
     );
   }
-  /*
 
-SIGN-IN SCREEN
-
-*/
   if (!user) {
     return (
       <div className="min-h-screen bg-[var(--bg-soft)]">
         <Header />
-        <main className="mx-auto flex min-h-[calc(100vh-64px)] max-w-[1600px] items-center justify-center px-4 py-12 sm:px-6 lg:px-10">
-          <div className="w-full max-w-lg rounded-3xl border border-veldt-border bg-white p-8 text-center shadow-sm sm:p-12">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-veldt-green/10">
-              <Trophy className="h-8 w-8 text-veldt-green" />
-            </div>
-
-            <p className="mt-6 text-xs font-black uppercase tracking-[0.22em] text-veldt-ochre">
+        <main className="mx-auto flex min-h-[calc(100vh-64px)] max-w-3xl items-center justify-center px-4 py-12">
+          <div className="w-full rounded-3xl border border-veldt-border bg-white p-10 text-center shadow-sm">
+            <Trophy className="mx-auto h-10 w-10 text-veldt-green" />
+            <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-veldt-ochre">
               Veldt Analytics
             </p>
-
-            <h1 className="mt-2 text-3xl font-black text-veldt-green">Admin Access</h1>
-
-            <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-veldt-muted">
-              Sign in with GitHub to create tournaments, manage pools and teams, and prepare
-              fixtures for the water polo platform.
+            <h1 className="mt-2 text-3xl font-black text-veldt-green">Create Tournament</h1>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-slate-500">
+              Sign in with GitHub to build a tournament, pools, teams and fixtures.
             </p>
-
-            {error && (
-              <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
             <button
               type="button"
               onClick={signIn}
-              className="mt-8 inline-flex w-full items-center justify-center gap-3 rounded-xl bg-veldt-green px-5 py-3.5 text-sm font-black text-white transition hover:opacity-90"
+              className="mt-8 inline-flex items-center gap-2 rounded-xl bg-veldt-green px-6 py-3.5 text-sm font-black text-white"
             >
               <LogIn className="h-5 w-5" />
               Sign in with GitHub
             </button>
-
-            <p className="mt-4 text-xs text-slate-400">
-              Production login returns to water-polo-platform.vercel.app.
-            </p>
           </div>
         </main>
       </div>
     );
   }
-  /*
 
-MAIN ADMIN SCREEN
-
-*/
   return (
     <div className="min-h-screen bg-[var(--bg-soft)]">
       <Header />
-      <main className="mx-auto w-full max-w-[1600px] px-4 py-7 sm:px-6 lg:px-10">
-        <div className="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-veldt-ochre">
-              <Trophy className="h-4 w-4" />
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-veldt-ochre">
               Tournament Management
-            </div>
-
-            <h1 className="text-3xl font-black tracking-tight text-veldt-green sm:text-4xl">
-              Veldt Analytics Admin
+            </p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-veldt-green sm:text-4xl">
+              Create Tournament
             </h1>
-
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-veldt-muted">
-              Create competitions, organise pools, register teams, set participation status and
-              prepare fixtures for the scorekeeper.
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              Set up the complete competition before anything is written to the database.
             </p>
           </div>
-
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl border border-veldt-border bg-white px-4 py-3 text-right shadow-sm">
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-veldt-ochre">
-                Signed in
-              </div>
-
-              <div className="mt-1 max-w-[220px] truncate text-sm font-semibold text-veldt-green">
-                {user.email ?? user.user_metadata?.user_name?.toString() ?? 'GitHub User'}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={signOut}
-              className="rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
-            >
-              Sign out
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm font-bold text-slate-600"
+          >
+            Sign out
+          </button>
         </div>
 
-        {(message || error) && (
-          <div className="mb-6 space-y-3">
-            {message && (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-                {message}
-              </div>
-            )}
-
+        {(error || message) && (
+          <div className="mt-6 space-y-3">
             {error && (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
                 {error}
               </div>
             )}
+            {message && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                {message}
+              </div>
+            )}
           </div>
         )}
 
-        <section className="mb-6 rounded-2xl border border-veldt-border bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-veldt-ochre">
-                Active Tournament
-              </div>
-
-              <div className="mt-1 text-lg font-black text-veldt-green">
-                {selectedTournament?.name ?? 'No tournament selected'}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <select
-                value={selectedTournamentId}
-                onChange={(event) => setSelectedTournamentId(event.target.value)}
-                className="min-w-[260px] rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-veldt-ochre"
-              >
-                {tournaments.length === 0 && <option value="">No tournaments</option>}
-
-                {tournaments.map((tournament) => (
-                  <option key={tournament.id} value={tournament.id}>
-                    {tournament.name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => loadTournaments()}
-                disabled={loadingData}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm font-bold text-veldt-green transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-            </div>
+        <div className="mt-8 rounded-2xl border border-veldt-border bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-5 gap-1">
+            {STEPS.map((step) => {
+              const active = currentStep === step.number;
+              const complete = currentStep > step.number;
+              return (
+                <button
+                  key={step.number}
+                  type="button"
+                  onClick={() => step.number < currentStep && setCurrentStep(step.number)}
+                  className={`rounded-xl px-2 py-3 text-center ${active ? 'bg-veldt-green text-white' : complete ? 'bg-emerald-50 text-emerald-700' : 'text-slate-400'}`}
+                >
+                  <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-full border text-xs font-black">
+                    {complete ? <Check className="h-4 w-4" /> : step.number}
+                  </div>
+                  <div className="mt-1 text-[10px] font-black uppercase tracking-wider sm:text-xs">
+                    {step.label}
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        </section>
+        </div>
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section className="rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-veldt-green/10">
-                <Trophy className="h-5 w-5 text-veldt-green" />
-              </div>
-
-              <div>
-                <h2 className="text-xl font-black text-veldt-green">Create Tournament</h2>
-
-                <p className="mt-1 text-sm text-veldt-muted">
-                  Create the competition that will hold your pools, teams and fixtures.
-                </p>
-              </div>
-            </div>
-
-            <form id="create-tournament-form" onSubmit={createTournament} className="space-y-4">
-              <div>
-                <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                  Tournament Name
-                </label>
-
-                <input
-                  type="text"
-                  value={tournamentName}
-                  onChange={(event) => setTournamentName(event.target.value)}
-                  placeholder="e.g. Mackenzie Cup 2026"
-                  className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+        <section className="mt-6 rounded-3xl border border-veldt-border bg-white p-6 shadow-sm sm:p-8">
+          {currentStep === 1 && (
+            <div>
+              <div className="flex items-center gap-3">
+                <Trophy className="h-6 w-6 text-veldt-green" />
                 <div>
-                  <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                    Category
-                  </label>
-
+                  <h2 className="text-xl font-black text-veldt-green">Tournament details</h2>
+                  <p className="text-sm text-slate-500">
+                    These details become the parent tournament record.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-7 grid gap-5 md:grid-cols-2">
+                <label className="md:col-span-2">
+                  <span className="label">Tournament Name</span>
+                  <input
+                    value={tournamentName}
+                    onChange={(e) => setTournamentName(e.target.value)}
+                    placeholder="Mackenzie Cup 2026"
+                    className="field"
+                  />
+                </label>
+                <label>
+                  <span className="label">Category</span>
                   <select
                     value={tournamentCategory}
-                    onChange={(event) => setTournamentCategory(event.target.value as Category)}
-                    className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
+                    onChange={(e) => setTournamentCategory(e.target.value as Category)}
+                    className="field"
                   >
                     <option value="GIRLS">Girls</option>
-
                     <option value="BOYS">Boys</option>
+                    <option value="MIXED">Mixed</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                    Location
-                  </label>
-
+                </label>
+                <label>
+                  <span className="label">Location</span>
                   <input
-                    type="text"
                     value={tournamentLocation}
-                    onChange={(event) => setTournamentLocation(event.target.value)}
+                    onChange={(e) => setTournamentLocation(e.target.value)}
                     placeholder="Cape Town"
-                    className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
+                    className="field"
                   />
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                    Start Date
-                  </label>
-
+                </label>
+                <label>
+                  <span className="label">Start Date</span>
                   <input
                     type="date"
                     value={tournamentStartDate}
-                    onChange={(event) => setTournamentStartDate(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
+                    onChange={(e) => setTournamentStartDate(e.target.value)}
+                    className="field"
                   />
-                </div>
-
-                <div>
-                  <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                    End Date
-                  </label>
-
+                </label>
+                <label>
+                  <span className="label">End Date</span>
                   <input
                     type="date"
                     value={tournamentEndDate}
-                    onChange={(event) => setTournamentEndDate(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
+                    onChange={(e) => setTournamentEndDate(e.target.value)}
+                    className="field"
                   />
-                </div>
-              </div>
-
-            
-            </form>
-          </section>
-
-          <section className="rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-veldt-ochre/10">
-                <Layers className="h-5 w-5 text-veldt-ochre" />
-              </div>
-
-              <div>
-                <h2 className="text-xl font-black text-veldt-green">Create Pool</h2>
-
-                <p className="mt-1 text-sm text-veldt-muted">
-                  Add pool groups to the active tournament.
-                </p>
-              </div>
-            </div>
-
-            <form onSubmit={createPool} className="space-y-4">
-              <div>
-                <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                  Pool Name
                 </label>
-
-                <input
-                  type="text"
-                  value={poolName}
-                  onChange={(event) => setPoolName(event.target.value)}
-                  placeholder="Pool A"
-                  className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-                />
               </div>
-
-              <button
-                type="submit"
-                disabled={loading || !selectedTournamentId}
-                className="inline-flex items-center gap-2 rounded-xl bg-veldt-ochre px-5 py-3 text-sm font-black text-slate-950 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add Pool
-              </button>
-            </form>
-
-            <div className="mt-6 border-t border-veldt-border pt-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                  Current Pools
-                </span>
-
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                  {pools.length}
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {pools.map((pool) => (
-                  <div
-                    key={pool.id}
-                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
-                  >
-                    <span className="font-bold text-veldt-green">{pool.name}</span>
-                  </div>
-                ))}
-
-                {pools.length === 0 && (
-                  <p className="text-sm text-slate-400">No pools created yet.</p>
-                )}
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-veldt-green/10">
-                <Users className="h-5 w-5 text-veldt-green" />
-              </div>
-
-              <div>
-                <h2 className="text-xl font-black text-veldt-green">Register Team</h2>
-
-                <p className="mt-1 text-sm text-veldt-muted">
-                  Add teams to the selected tournament and classify their tournament participation.
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-slate-50 px-4 py-3 text-right">
-              <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                Registered Teams
-              </div>
-
-              <div className="text-lg font-black text-veldt-green">{teams.length}</div>
-            </div>
-          </div>
-
-          <form onSubmit={createTeam} className="grid gap-4 lg:grid-cols-3">
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Team Name
-              </label>
-
-              <input
-                type="text"
-                value={teamName}
-                onChange={(event) => setTeamName(event.target.value)}
-                placeholder="St Stithians College"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                City
-              </label>
-
-              <input
-                type="text"
-                value={teamCity}
-                onChange={(event) => setTeamCity(event.target.value)}
-                placeholder="Johannesburg"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Province
-              </label>
-
-              <input
-                type="text"
-                value={teamProvince}
-                onChange={(event) => setTeamProvince(event.target.value)}
-                placeholder="Gauteng"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Pool
-              </label>
-
-              <select
-                value={selectedPoolId}
-                onChange={(event) => setSelectedPoolId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-              >
-                <option value="">Unassigned</option>
-
-                {pools.map((pool) => (
-                  <option key={pool.id} value={pool.id}>
-                    {pool.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Participation
-              </label>
-
-              <select
-                value={participationType}
-                onChange={(event) => setParticipationType(event.target.value as ParticipationType)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm outline-none focus:border-veldt-ochre"
-              >
-                {PARTICIPATION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading || !selectedTournamentId}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add Team
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-7 overflow-x-auto rounded-2xl border border-veldt-border">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr className="text-left">
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Team
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Location
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Pool
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Participation
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-veldt-border">
-                {sortedTeams.map((team) => {
-                  const participation = normaliseParticipationType(team.participation_type);
-
-                  return (
-                    <tr key={team.id}>
-                      <td className="px-4 py-4">
-                        <div className="font-bold text-veldt-green">{team.name}</div>
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-500">
-                        {[team.city, team.province].filter(Boolean).join(', ') || 'Not set'}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <select
-                          value={team.pool_group_id ?? ''}
-                          onChange={(event) => updateTeamPool(team.id, event.target.value)}
-                          className="rounded-lg border border-veldt-border bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="">Unassigned</option>
-
-                          {pools.map((pool) => (
-                            <option key={pool.id} value={pool.id}>
-                              {pool.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <span
-                            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-bold ${participationClasses(
-                              participation
-                            )}`}
-                          >
-                            {formatParticipationType(participation)}
-                          </span>
-
-                          <select
-                            value={participation}
-                            onChange={(event) =>
-                              updateParticipationType(
-                                team.id,
-                                event.target.value as ParticipationType
-                              )
-                            }
-                            className="rounded-lg border border-veldt-border bg-white px-3 py-2 text-xs"
-                          >
-                            {PARTICIPATION_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {sortedTeams.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-400">
-                      No teams registered for this tournament yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-          <div className="mb-6 flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-veldt-ochre/10">
-              <Calendar className="h-5 w-5 text-veldt-ochre" />
-            </div>
-
-            <div>
-              <h2 className="text-xl font-black text-veldt-green">Schedule Fixture</h2>
-
-              <p className="mt-1 text-sm text-veldt-muted">
-                Create an individual fixture for the active tournament.
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={scheduleFixture} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Match Number
-              </label>
-
-              <input
-                type="number"
-                min="1"
-                value={fixtureMatchNumber}
-                onChange={(event) => setFixtureMatchNumber(event.target.value)}
-                placeholder="1"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Pool
-              </label>
-
-              <select
-                value={fixturePoolId}
-                onChange={(event) => setFixturePoolId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="">Unassigned</option>
-
-                {pools.map((pool) => (
-                  <option key={pool.id} value={pool.id}>
-                    {pool.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Home Team
-              </label>
-
-              <select
-                value={homeTeamId}
-                onChange={(event) => setHomeTeamId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="">Select team</option>
-
-                {sortedTeams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Away Team
-              </label>
-
-              <select
-                value={awayTeamId}
-                onChange={(event) => setAwayTeamId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="">Select team</option>
-
-                {sortedTeams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Date
-              </label>
-
-              <input
-                type="date"
-                value={fixtureDate}
-                onChange={(event) => setFixtureDate(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Time
-              </label>
-
-              <input
-                type="time"
-                value={fixtureTime}
-                onChange={(event) => setFixtureTime(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Pool Location
-              </label>
-
-              <input
-                type="text"
-                value={fixturePoolLocation}
-                onChange={(event) => setFixturePoolLocation(event.target.value)}
-                placeholder="Pool 1"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Round Type
-              </label>
-
-              <select
-                value={fixtureRoundType}
-                onChange={(event) => setFixtureRoundType(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="Pool">Pool</option>
-
-                <option value="Quarter-final">Quarter-final</option>
-
-                <option value="Semi-final">Semi-final</option>
-
-                <option value="Final">Final</option>
-
-                <option value="3rd Place">3rd Place</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Stage Type
-              </label>
-
-              <input
-                type="text"
-                value={fixtureStageType}
-                onChange={(event) => setFixtureStageType(event.target.value)}
-                placeholder="POOL"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Stage Name
-              </label>
-
-              <input
-                type="text"
-                value={fixtureStageName}
-                onChange={(event) => setFixtureStageName(event.target.value)}
-                placeholder="Pool Stage"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Stage Order
-              </label>
-
-              <input
-                type="number"
-                value={fixtureStageOrder}
-                onChange={(event) => setFixtureStageOrder(event.target.value)}
-                placeholder="1"
-                className="mt-2 w-full rounded-xl border border-veldt-border px-4 py-3 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Home Cap
-              </label>
-
-              <select
-                value={fixtureHomeCap}
-                onChange={(event) =>
-                  setFixtureHomeCap(event.target.value as 'white' | 'blue' | 'dark')
-                }
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="white">White</option>
-
-                <option value="blue">Blue</option>
-
-                <option value="dark">Dark</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                Away Cap
-              </label>
-
-              <select
-                value={fixtureAwayCap}
-                onChange={(event) =>
-                  setFixtureAwayCap(event.target.value as 'white' | 'blue' | 'dark')
-                }
-                className="mt-2 w-full rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm"
-              >
-                <option value="blue">Blue</option>
-
-                <option value="white">White</option>
-
-                <option value="dark">Dark</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-2 xl:col-span-4">
-              <button
-                type="submit"
-                disabled={loading || !selectedTournamentId || !homeTeamId || !awayTeamId}
-                className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Schedule Fixture
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100">
-                <FileSpreadsheet className="h-5 w-5 text-veldt-green" />
-              </div>
-
-              <div>
-                <h2 className="text-xl font-black text-veldt-green">Import Fixtures</h2>
-
-                <p className="mt-1 text-sm text-veldt-muted">
-                  Upload a CSV spreadsheet using the Veldt fixture structure.
-                </p>
-              </div>
-            </div>
-
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-veldt-border bg-white px-4 py-3 text-sm font-bold text-veldt-green transition hover:bg-slate-50">
-              <Upload className="h-4 w-4" />
-              Choose CSV
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={handleFixtureFile}
-                className="hidden"
-              />
-            </label>
-          </div>
-
-          {fixtureFileName && (
-            <div className="mb-4 rounded-xl bg-slate-50 px-4 py-3 text-sm">
-              <span className="font-bold text-veldt-green">File:</span> {fixtureFileName}
-            </div>
-          )}
-
-          {fixtureImportErrors.length > 0 && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4">
-              <div className="font-bold text-red-800">Spreadsheet validation errors</div>
-
-              <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-sm text-red-700">
-                {fixtureImportErrors.map((importError, index) => (
-                  <div key={`${importError}-${index}`}>{importError}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {fixturePreview.length > 0 && (
-            <>
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <div className="font-black text-veldt-green">Fixture Preview</div>
-
-                  <div className="text-sm text-slate-500">
-                    {fixturePreview.length} rows detected
-                  </div>
-                </div>
-
+              <div className="mt-8 flex justify-end">
                 <button
                   type="button"
-                  onClick={importFixtures}
-                  disabled={importingFixtures || fixtureImportErrors.length > 0}
-                  className="inline-flex items-center gap-2 rounded-xl bg-veldt-ochre px-4 py-3 text-sm font-black text-slate-950 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!tournamentComplete}
+                  onClick={() => {
+                    clearNotices();
+                    setCurrentStep(2);
+                  }}
+                  className="btn-primary"
                 >
-                  <Upload className="h-4 w-4" />
-
-                  {importingFixtures ? 'Importing...' : 'Import Fixtures'}
+                  Continue to Pools <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
+            </div>
+          )}
 
-              <div className="overflow-x-auto rounded-2xl border border-veldt-border">
-                <table className="min-w-full text-xs">
+          {currentStep === 2 && (
+            <div>
+              <div className="flex items-center gap-3">
+                <Layers className="h-6 w-6 text-veldt-ochre" />
+                <div>
+                  <h2 className="text-xl font-black text-veldt-green">Pools / Groups</h2>
+                  <p className="text-sm text-slate-500">
+                    Create any pool or group names required by this tournament.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-7 flex gap-3">
+                <input
+                  value={newPoolName}
+                  onChange={(e) => setNewPoolName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addPool()}
+                  placeholder="Pool A"
+                  className="field flex-1"
+                />
+                <button type="button" onClick={addPool} className="btn-gold">
+                  <Plus className="h-4 w-4" />
+                  Add Pool
+                </button>
+              </div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {stagedPools.map((pool) => (
+                  <div
+                    key={pool.tempId}
+                    className="flex items-center justify-between rounded-xl border border-veldt-border bg-slate-50 px-4 py-3"
+                  >
+                    <span className="font-bold text-veldt-green">{pool.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removePool(pool.tempId)}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                {stagedPools.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400 sm:col-span-2 lg:col-span-3">
+                    No pools added yet.
+                  </div>
+                )}
+              </div>
+              <div className="mt-8 flex justify-between">
+                <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={stagedPools.length === 0}
+                  onClick={() => {
+                    clearNotices();
+                    setCurrentStep(3);
+                  }}
+                  className="btn-primary"
+                >
+                  Continue to Teams <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 3 && (
+            <div>
+              <div className="flex items-center gap-3">
+                <Users className="h-6 w-6 text-veldt-green" />
+                <div>
+                  <h2 className="text-xl font-black text-veldt-green">Teams</h2>
+                  <p className="text-sm text-slate-500">
+                    Register teams and their participation status for this tournament.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <input
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="Team name"
+                  className="field xl:col-span-2"
+                />
+                <input
+                  value={teamCity}
+                  onChange={(e) => setTeamCity(e.target.value)}
+                  placeholder="City"
+                  className="field"
+                />
+                <input
+                  value={teamProvince}
+                  onChange={(e) => setTeamProvince(e.target.value)}
+                  placeholder="Province"
+                  className="field"
+                />
+                <select
+                  value={teamPoolName}
+                  onChange={(e) => setTeamPoolName(e.target.value)}
+                  className="field"
+                >
+                  <option value="">Unassigned</option>
+                  {stagedPools.map((pool) => (
+                    <option key={pool.tempId} value={pool.name}>
+                      {pool.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={teamParticipationType}
+                  onChange={(e) => setTeamParticipationType(e.target.value as ParticipationType)}
+                  className="field"
+                >
+                  {PARTICIPATION_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addTeam}
+                  className="btn-gold md:col-span-2 xl:col-span-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Team
+                </button>
+              </div>
+              <div className="mt-7 overflow-x-auto rounded-2xl border border-veldt-border">
+                <table className="min-w-full text-sm">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-3 py-3 text-left font-black uppercase tracking-wider text-slate-500">
-                        #
-                      </th>
-
-                      <th className="px-3 py-3 text-left font-black uppercase tracking-wider text-slate-500">
-                        Pool
-                      </th>
-
-                      <th className="px-3 py-3 text-left font-black uppercase tracking-wider text-slate-500">
-                        Date/Time
-                      </th>
-
-                      <th className="px-3 py-3 text-left font-black uppercase tracking-wider text-slate-500">
-                        Home
-                      </th>
-
-                      <th className="px-3 py-3 text-left font-black uppercase tracking-wider text-slate-500">
-                        Away
-                      </th>
+                      <th className="th">Team</th>
+                      <th className="th">Pool</th>
+                      <th className="th">Participation</th>
+                      <th className="th">Location</th>
+                      <th />
                     </tr>
                   </thead>
-
                   <tbody className="divide-y divide-veldt-border">
-                    {fixturePreview.slice(0, 25).map((fixture, index) => (
-                      <tr key={`${fixture.match_number}-${index}`}>
-                        <td className="px-3 py-3 font-bold text-veldt-green">
-                          {fixture.match_number}
+                    {stagedTeams.map((team) => (
+                      <tr key={team.tempId}>
+                        <td className="td font-bold text-veldt-green">{team.name}</td>
+                        <td className="td">{team.poolName || 'Unassigned'}</td>
+                        <td className="td">{team.participationType}</td>
+                        <td className="td">
+                          {[team.city, team.province].filter(Boolean).join(', ') || 'Not set'}
                         </td>
+                        <td className="td text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeTeam(team.tempId)}
+                            className="text-slate-400 hover:text-red-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {stagedTeams.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
+                          No teams added yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-8 flex justify-between">
+                <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={stagedTeams.length === 0}
+                  onClick={() => {
+                    clearNotices();
+                    setCurrentStep(4);
+                  }}
+                  className="btn-primary"
+                >
+                  Continue to Fixtures <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
-                        <td className="px-3 py-3">{fixture.pool}</td>
+          {currentStep === 4 && (
+            <div>
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet className="h-6 w-6 text-veldt-green" />
+                <div>
+                  <h2 className="text-xl font-black text-veldt-green">Fixtures</h2>
+                  <p className="text-sm text-slate-500">
+                    Import the fixtures CSV. Nothing is created until the final step.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-7 flex flex-wrap items-center gap-4">
+                <label className="btn-secondary cursor-pointer">
+                  <Upload className="h-4 w-4" />
+                  Choose CSV
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={handleFixtureFile}
+                    className="hidden"
+                  />
+                </label>
+                {fixtureFileName && (
+                  <span className="text-sm font-semibold text-slate-600">{fixtureFileName}</span>
+                )}
+              </div>
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <strong>Expected columns:</strong> match_number, pool, home_team, away_team,
+                scheduled_time, pool_location, round_type, stage_type, stage_name, stage_order. Team
+                names found in the fixture file are automatically staged if they are not already
+                listed.
+              </div>
+              {allFixtureErrors.length > 0 && (
+                <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <div className="font-black">Fixture validation</div>
+                  <div className="mt-2 space-y-1">
+                    {allFixtureErrors.slice(0, 30).map((item, index) => (
+                      <div key={`${item}-${index}`}>{item}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {duplicateMatchNumbers.length > 0 && (
+                <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  Duplicate match numbers: {duplicateMatchNumbers.join(', ')}
+                </div>
+              )}
+              {stagedFixtures.length > 0 && (
+                <div className="mt-6 overflow-x-auto rounded-2xl border border-veldt-border">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="th">#</th>
+                        <th className="th">Pool</th>
+                        <th className="th">Home</th>
+                        <th className="th">Away</th>
+                        <th className="th">Stage</th>
+                        <th className="th">Date/Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-veldt-border">
+                      {stagedFixtures.slice(0, 50).map((fixture) => (
+                        <tr key={fixture.tempId}>
+                          <td className="td font-black text-veldt-green">{fixture.matchNumber}</td>
+                          <td className="td">{fixture.poolName || '—'}</td>
+                          <td className="td font-semibold">{fixture.homeTeam}</td>
+                          <td className="td font-semibold">{fixture.awayTeam}</td>
+                          <td className="td">{fixture.stageName}</td>
+                          <td className="td">
+                            {fixture.scheduledTime
+                              ? new Date(fixture.scheduledTime).toLocaleString('en-ZA', {
+                                  dateStyle: 'medium',
+                                  timeStyle: 'short',
+                                  hour12: false,
+                                })
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="mt-8 flex justify-between">
+                <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    stagedFixtures.length === 0 ||
+                    allFixtureErrors.length > 0 ||
+                    duplicateMatchNumbers.length > 0
+                  }
+                  onClick={() => {
+                    clearNotices();
+                    setCurrentStep(5);
+                  }}
+                  className="btn-primary"
+                >
+                  Review Tournament <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
-                        <td className="px-3 py-3">{fixture.scheduled_time}</td>
-
-                        <td className="px-3 py-3 font-semibold">{fixture.home_team}</td>
-
-                        <td className="px-3 py-3 font-semibold">{fixture.away_team}</td>
+          {currentStep === 5 && (
+            <div>
+              <div className="flex items-center gap-3">
+                <Check className="h-6 w-6 text-emerald-600" />
+                <div>
+                  <h2 className="text-xl font-black text-veldt-green">Review & Create</h2>
+                  <p className="text-sm text-slate-500">
+                    Nothing is written to Supabase until you press Create Tournament.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-7 grid gap-4 md:grid-cols-2">
+                <div className="summary">
+                  <div className="eyebrow">Tournament</div>
+                  <div className="summary-title">{tournamentName}</div>
+                  <div className="summary-text">
+                    {statusLabel(tournamentCategory)} · {tournamentStartDate} → {tournamentEndDate}
+                  </div>
+                  <div className="summary-text">{tournamentLocation}</div>
+                </div>
+                <div className="summary">
+                  <div className="eyebrow">Setup</div>
+                  <div className="summary-stats">
+                    <span>{stagedPools.length} Pools</span>
+                    <span>{stagedTeams.length} Teams</span>
+                    <span>{stagedFixtures.length} Fixtures</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 overflow-x-auto rounded-2xl border border-veldt-border">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="th">Pool</th>
+                      <th className="th">Teams</th>
+                      <th className="th">Fixtures</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-veldt-border">
+                    {stagedPools.map((pool) => (
+                      <tr key={pool.tempId}>
+                        <td className="td font-bold text-veldt-green">{pool.name}</td>
+                        <td className="td">
+                          {
+                            stagedTeams.filter(
+                              (team) => team.poolName.toLowerCase() === pool.name.toLowerCase()
+                            ).length
+                          }
+                        </td>
+                        <td className="td">
+                          {
+                            stagedFixtures.filter(
+                              (fixture) =>
+                                fixture.poolName.toLowerCase() === pool.name.toLowerCase()
+                            ).length
+                          }
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {fixturePreview.length > 25 && (
-                <p className="mt-3 text-xs text-slate-400">
-                  Showing the first 25 rows of the preview.
-                </p>
+              {!reviewReady && (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  Complete all required setup and resolve every fixture validation error before
+                  creating the tournament.
+                </div>
               )}
-            </>
+              <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+                <button type="button" onClick={() => setCurrentStep(4)} className="btn-secondary">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back to Fixtures
+                </button>
+                <button
+                  type="button"
+                  disabled={!reviewReady || saving}
+                  onClick={finaliseTournament}
+                  className="btn-primary px-8"
+                >
+                  {saving ? 'Creating Tournament...' : 'Create Tournament'}
+                </button>
+              </div>
+            </div>
           )}
         </section>
 
-          <div className="mt-6 flex justify-end">
-            <button
-              type="submit"
-              form="create-tournament-form"
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              Create Tournament
-            </button>
-          </div>
-
-        <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
+        <section className="mt-8 rounded-3xl border border-veldt-border bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black text-veldt-green">Current Fixtures</h2>
-
-              <p className="mt-1 text-sm text-veldt-muted">
-                Fixtures registered for the active tournament.
+              <h2 className="text-xl font-black text-veldt-green">Existing Tournaments</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Existing tournaments remain separate from the new tournament being staged above.
               </p>
             </div>
-
-            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600">
-              {matches.length} {matches.length === 1 ? 'fixture' : 'fixtures'}
-            </span>
+            <button
+              type="button"
+              onClick={() => void loadExistingTournaments()}
+              className="btn-secondary"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
           </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-veldt-border">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr className="text-left">
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Match
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Fixture
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Pool
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Scheduled
-                  </th>
-
-                  <th className="px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-veldt-border">
-                {matches.map((match) => (
-                  <tr key={match.id}>
-                    <td className="px-4 py-4 font-black text-veldt-green">
-                      {match.match_number ?? '—'}
-                    </td>
-
-                    <td className="px-4 py-4">
-                      <div className="font-bold text-slate-800">
-                        {match.home_team?.name ?? 'Unknown Home Team'}
-                      </div>
-
-                      <div className="my-1 text-xs font-black uppercase tracking-wider text-slate-400">
-                        vs
-                      </div>
-
-                      <div className="font-bold text-slate-800">
-                        {match.away_team?.name ?? 'Unknown Away Team'}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-4 text-slate-600">
-                      {match.pool_group?.name ?? poolNameById(match.pool_group_id)}
-                    </td>
-
-                    <td className="px-4 py-4 text-slate-600">
-                      {formatDateTime(match.scheduled_time)}
-
-                      {match.pool_location && (
-                        <div className="mt-1 text-xs text-slate-400">{match.pool_location}</div>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-4">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusClasses(
-                          match.status
-                        )}`}
-                      >
-                        {displayStatus(match.status)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-
-                {matches.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
-                      No fixtures have been created for this tournament yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="mt-5 space-y-3">
+            {existingTournaments.map((tournament) => (
+              <div
+                key={tournament.id}
+                className={`rounded-2xl border p-4 ${selectedExistingTournamentId === tournament.id ? 'border-veldt-green bg-veldt-green/5' : 'border-veldt-border bg-slate-50'}`}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-black text-veldt-green">{tournament.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {statusLabel(tournament.competition_category)}
+                      {tournament.location ? ` · ${tournament.location}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedExistingTournamentId(tournament.id)}
+                    className="text-xs font-black uppercase tracking-wider text-veldt-ochre"
+                  >
+                    Select
+                  </button>
+                </div>
+              </div>
+            ))}
+            {existingTournaments.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">
+                No tournaments exist yet.
+              </div>
+            )}
           </div>
         </section>
-
-        {selectedTournament && (
-          <section className="mt-6 rounded-2xl border border-veldt-border bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-veldt-ochre">
-                  Active Competition
-                </div>
-
-                <h2 className="mt-1 text-2xl font-black text-veldt-green">
-                  {selectedTournament.name}
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  {selectedTournament.competition_category === 'BOYS' ? 'Boys' : 'Girls'}{' '}
-                  competition
-                  {selectedTournament.location ? ` · ${selectedTournament.location}` : ''}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-center">
-                  <div className="text-lg font-black text-veldt-green">{pools.length}</div>
-
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Pools
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-center">
-                  <div className="text-lg font-black text-veldt-green">{teams.length}</div>
-
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Teams
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-center">
-                  <div className="text-lg font-black text-veldt-green">{matches.length}</div>
-
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Fixtures
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              {['STANDARD', 'INVITATIONAL', 'EXHIBITION'].map((type) => {
-                const count = teams.filter(
-                  (team) => normaliseParticipationType(team.participation_type) === type
-                ).length;
-
-                return (
-                  <span
-                    key={type}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-bold ${participationClasses(
-                      type as ParticipationType
-                    )}`}
-                  >
-                    {formatParticipationType(type as ParticipationType)}: {count}
-                  </span>
-                );
-              })}
-            </div>
-
-             <button
-                type="submit"
-                disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-veldt-green px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Create Tournament
-              </button>
-              
-          </section>
-
-        )}
       </main>
+      <style jsx>{`
+        .label {
+          display: block;
+          font-size: 0.72rem;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .field {
+          margin-top: 0.5rem;
+          width: 100%;
+          border: 1px solid #e2e8f0;
+          border-radius: 0.75rem;
+          background: #fff;
+          padding: 0.8rem 1rem;
+          font-size: 0.875rem;
+          outline: none;
+        }
+        .field:focus {
+          border-color: #d8913b;
+        }
+        .btn-primary {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          border-radius: 0.75rem;
+          background: #234723;
+          color: #fff;
+          padding: 0.8rem 1.1rem;
+          font-size: 0.875rem;
+          font-weight: 900;
+        }
+        .btn-primary:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+        .btn-secondary {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          border-radius: 0.75rem;
+          border: 1px solid #e2e8f0;
+          background: #fff;
+          color: #234723;
+          padding: 0.8rem 1.1rem;
+          font-size: 0.875rem;
+          font-weight: 800;
+        }
+        .btn-gold {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          border-radius: 0.75rem;
+          background: #d8913b;
+          color: #172617;
+          padding: 0.8rem 1.1rem;
+          font-size: 0.875rem;
+          font-weight: 900;
+        }
+        .btn-gold:hover,
+        .btn-primary:hover,
+        .btn-secondary:hover {
+          opacity: 0.9;
+        }
+        .th {
+          padding: 0.8rem 1rem;
+          text-align: left;
+          font-size: 0.68rem;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .td {
+          padding: 1rem;
+          color: #475569;
+        }
+        .summary {
+          border: 1px solid #e2e8f0;
+          border-radius: 1rem;
+          background: #f8f9fa;
+          padding: 1.25rem;
+        }
+        .eyebrow {
+          font-size: 0.65rem;
+          font-weight: 900;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          color: #d8913b;
+        }
+        .summary-title {
+          margin-top: 0.35rem;
+          font-size: 1.1rem;
+          font-weight: 900;
+          color: #234723;
+        }
+        .summary-text {
+          margin-top: 0.2rem;
+          font-size: 0.85rem;
+          color: #64748b;
+        }
+        .summary-stats {
+          display: grid;
+          gap: 0.6rem;
+          margin-top: 0.6rem;
+          font-size: 0.9rem;
+          font-weight: 800;
+          color: #234723;
+        }
+      `}</style>
     </div>
   );
 }
