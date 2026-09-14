@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import {
   Calendar,
@@ -247,6 +247,7 @@ export default function AdminPage() {
   const [stagedFixtures, setStagedFixtures] = useState<StagedFixture[]>([]);
   const [fixtureFileName, setFixtureFileName] = useState('');
   const [fixtureErrors, setFixtureErrors] = useState<string[]>([]);
+  const fixtureInputRef = useRef<HTMLInputElement>(null);
 
   const getAccessToken = useCallback(async () => {
     if (typeof window !== 'undefined') {
@@ -416,6 +417,14 @@ export default function AdminPage() {
 
   function removeTeam(tempId: string) {
     setStagedTeams((prev) => prev.filter((team) => team.tempId !== tempId));
+  }
+
+  function clearFixtureFile() {
+    if (fixtureInputRef.current) fixtureInputRef.current.value = '';
+    setFixtureFileName('');
+    setFixtureErrors([]);
+    setStagedFixtures([]);
+    clearNotices();
   }
 
   function handleFixtureFile(event: React.ChangeEvent<HTMLInputElement>) {
@@ -1053,6 +1062,7 @@ export default function AdminPage() {
                   <Upload className="h-4 w-4" />
                   Choose CSV
                   <input
+                    ref={fixtureInputRef}
                     type="file"
                     accept=".csv,text/csv"
                     onChange={handleFixtureFile}
@@ -1060,7 +1070,17 @@ export default function AdminPage() {
                   />
                 </label>
                 {fixtureFileName && (
-                  <span className="text-sm font-semibold text-slate-600">{fixtureFileName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-600">{fixtureFileName}</span>
+                    <button
+                      type="button"
+                      onClick={clearFixtureFile}
+                      className="btn-secondary px-3 py-1.5 text-xs"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Remove CSV
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
