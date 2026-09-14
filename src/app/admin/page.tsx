@@ -191,9 +191,6 @@ function getFixtureErrors(
   if (fixture.poolName && fixture.stageType === 'POOL' && !poolNames.has(poolKey)) {
     errors.push(`pool "${fixture.poolName}" is not in the staged pools`);
   }
-  if (fixture.stageType !== 'POOL' && fixture.poolName && !poolNames.has(poolKey)) {
-    errors.push(`pool "${fixture.poolName}" is not in the staged pools`);
-  }
   const homeSlot = parseMatchSlot(fixture.homeTeam);
   const awaySlot = parseMatchSlot(fixture.awayTeam);
   if (fixture.homeTeam && !stagedTeamNames.has(homeKey) && !homeSlot) {
@@ -332,9 +329,10 @@ export default function AdminPage() {
     );
     return [...counts.entries()].filter(([, count]) => count > 1).map(([number]) => number);
   }, [stagedFixtures]);
+  const hasPoolStage = stagedFixtures.some((fixture) => fixture.stageType === 'POOL');
   const reviewReady =
     tournamentComplete &&
-    stagedPools.length > 0 &&
+    (!hasPoolStage || stagedPools.length > 0) &&
     stagedTeams.length > 0 &&
     stagedFixtures.length > 0 &&
     allFixtureErrors.length === 0 &&
@@ -455,7 +453,7 @@ export default function AdminPage() {
               !key.includes('winner') &&
               !key.includes('loser')
             ) {
-              const poolName = fixture.poolName;
+              const poolName = fixture.stageType === 'POOL' ? fixture.poolName : '';
               importedTeamNames.set(key, {
                 tempId: crypto.randomUUID(),
                 name,
@@ -572,7 +570,7 @@ export default function AdminPage() {
 
         for (let index = remainingFixtures.length - 1; index >= 0; index -= 1) {
           const fixture = remainingFixtures[index];
-          const poolId = fixture.poolName
+          const poolId = fixture.stageType === 'POOL' && fixture.poolName
             ? (poolIdByName.get(fixture.poolName.toLowerCase()) ?? null)
             : null;
           const homeId = teamIdByName.get(fixture.homeTeam.toLowerCase());
@@ -910,7 +908,6 @@ export default function AdminPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={stagedPools.length === 0}
                   onClick={() => {
                     clearNotices();
                     setCurrentStep(3);
@@ -1086,8 +1083,8 @@ export default function AdminPage() {
               <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                 <strong>Expected columns:</strong> match_number, pool, home_team, away_team,
                 scheduled_time, pool_location, round_type, stage_type, stage_name, stage_order. Team
-                names found in the fixture file are automatically staged if they are not already
-                listed.
+                names found in the fixture file are automatically staged. Add pools in the previous
+                step when using pool-stage fixtures.
               </div>
               {allFixtureErrors.length > 0 && (
                 <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
